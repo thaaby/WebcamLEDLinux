@@ -9,7 +9,7 @@ sudo apt-get update
 
 # Installa dipendenze di sistema/librerie
 echo "📦 Installazione dipendenze di sistema..."
-sudo apt-get install -y python3-opencv python3-numpy python3-pygame python3-serial python3-pip libatlas-base-dev espeak espeak-ng
+sudo apt-get install -y python3-opencv python3-numpy python3-pygame python3-serial libatlas-base-dev espeak
 
 # Permessi seriale (solitamente necessari su Linux)
 echo "🔑 Configurazione permessi seriale..."

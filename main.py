@@ -31,7 +31,6 @@ import time
 import os
 import platform
 import math
-import glob
 
 try:
     import serial
@@ -209,159 +208,6 @@ def apply_gamma(color):
     return gamma_table[color]
 
 # ============================================================
-# ============================================================
-# CALIBRAZIONE MANUALE COLORE
-# ============================================================
-class CalibrationManager:
-    def __init__(self):
-        self.state = "IDLE"  # IDLE, WAIT_R, WAIT_G, WAIT_B
-        self.measurements = {}
-        self.matrix = None # Matrice di correzione 3x3
-        self.step_message = ""
-
-    def start_calibration(self):
-        self.state = "WAIT_R"
-        self.measurements = {}
-        self.step_message = "MOSTRA ROSSO E PREMI '0'"
-        print(f"\n🔧 {self.step_message}")
-
-    def process_step(self, current_rgb):
-        if self.state == "IDLE":
-            self.start_calibration()
-            return
-
-        if self.state == "WAIT_R":
-            self.measurements['R'] = current_rgb
-            self.state = "WAIT_G"
-            self.step_message = "MOSTRA VERDE E PREMI '0'"
-            print(f"✅ Rosso catturato: {current_rgb}")
-            print(f"🔧 {self.step_message}")
-            
-        elif self.state == "WAIT_G":
-            self.measurements['G'] = current_rgb
-            self.state = "WAIT_B"
-            self.step_message = "MOSTRA BLU E PREMI '0'"
-            print(f"✅ Verde catturato: {current_rgb}")
-            print(f"🔧 {self.step_message}")
-
-        elif self.state == "WAIT_B":
-            self.measurements['B'] = current_rgb
-            self.compute_matrix()
-            self.state = "IDLE"
-            self.step_message = "CALIBRAZIONE COMPLETATA"
-            print(f"✅ Blu catturato: {current_rgb}")
-            print(f"✨ {self.step_message}")
-
-    def compute_matrix(self):
-        # Target colors (Ideal Red, Green, Blue)
-        targets = np.array([
-            [255, 0, 0],   # Ideal Red
-            [0, 255, 0],   # Ideal Green
-            [0, 0, 255]    # Ideal Blue
-        ], dtype=np.float32).T
-
-        # Measured colors
-        measured = np.array([
-            self.measurements['R'],
-            self.measurements['G'],
-            self.measurements['B']
-        ], dtype=np.float32).T
-
-        # Evita matrice singolare aggiungendo un piccolo bias se necessario
-        # Calcola M tale che M * Measured = Target
-        # M = Target * Measured^-1
-        try:
-            self.matrix = np.dot(targets, np.linalg.pinv(measured))
-            print("🧮 Matrice di calibrazione calcolata:")
-            print(self.matrix)
-        except Exception as e:
-            print(f"❌ Errore calcolo matrice: {e}")
-            self.matrix = None
-
-    def apply(self, rgb):
-        if self.matrix is None:
-            return rgb
-        
-        # Converti in array colonna
-        col = np.array([list(rgb)], dtype=np.float32).T
-        
-        # Applica matrice
-        corrected = np.dot(self.matrix, col)
-        
-        # Clip 0-255 e converti a int
-        return tuple(np.clip(corrected.flatten(), 0, 255).astype(int))
-
-# Istanza globale
-calibration = CalibrationManager()
-
-# ============================================================
-# CONTROLLI CAMERA HARDWARE (Luminosità/Saturazione)
-# ============================================================
-class CameraControls:
-    def __init__(self, cap):
-        self.cap = cap
-        self.settings = {
-            'Brightness': cv2.CAP_PROP_BRIGHTNESS,
-            'Contrast': cv2.CAP_PROP_CONTRAST,
-            'Saturation': cv2.CAP_PROP_SATURATION,
-            'Gain': cv2.CAP_PROP_GAIN,
-            'AutoWB': cv2.CAP_PROP_AUTO_WB,
-            'WB_Temp': cv2.CAP_PROP_WB_TEMPERATURE
-        }
-        self.last_change_time = 0
-        self.message = ""
-        
-        # Auto-Boost Saturation on Linux
-        if platform.system() == 'Linux':
-            self.boost_linux_colors()
-
-    def get_value(self, prop_name):
-        if prop_name in self.settings:
-            return self.cap.get(self.settings[prop_name])
-        return -1
-
-    def set_value(self, prop_name, value):
-        if prop_name in self.settings:
-            # Assicuriamoci che il valore sia valido (spesso 0-255 o 0-100)
-            # Alcune proprietà potrebbero supportare range diversi
-            self.cap.set(self.settings[prop_name], value)
-            new_val = self.cap.get(self.settings[prop_name])
-            self.message = f"{prop_name}: {new_val:.1f}"
-            self.last_change_time = time.time()
-            return new_val
-        return -1
-    
-    def adjust(self, prop_name, delta):
-        current = self.get_value(prop_name)
-        if current == -1: return
-        
-        new_val = current + delta
-        # Clamp generico (poi il driver fa il suo)
-        if new_val < 0: new_val = 0
-        
-        self.set_value(prop_name, new_val)
-
-    def toggle_autowb(self):
-        current = self.get_value('AutoWB')
-        new_val = 0 if current == 1 else 1
-        self.set_value('AutoWB', new_val)
-        state = "ON" if new_val == 1 else "OFF"
-        self.message = f"Auto WB: {state}"
-        self.last_change_time = time.time()
-
-    def boost_linux_colors(self):
-        """Aumenta saturazione di default su Linux per evitare colori spenti."""
-        print("🐧 Linux detected: Boosting Saturation...")
-        try:
-            # Leggi attuale
-            sat = self.get_value('Saturation')
-            if sat != -1:
-                # Aumenta del 40% circa
-                self.set_value('Saturation', sat + 30)
-                print(f"   Saturazione portata a: {self.get_value('Saturation')}")
-        except:
-            pass
-
 # ============================================================
 
 # Definizione colore con valori RGB e nomi
@@ -670,16 +516,7 @@ def speak_color(color_name: str):
                 engine.say(color_name)
                 engine.runAndWait()
             else:  
-                # Linux / Raspberry Pi
-                # Prova con espeak-ng (più recente) o fallback su espeak
-                # Usa stderr=subprocess.DEVNULL per evitare spam in console
-                try:
-                    subprocess.run(['espeak-ng', '-v', 'it', color_name], check=False, stderr=subprocess.DEVNULL)
-                except FileNotFoundError:
-                    try:
-                        subprocess.run(['espeak', '-v', 'it', color_name], check=False, stderr=subprocess.DEVNULL)
-                    except FileNotFoundError:
-                        pass
+                subprocess.run(['espeak', color_name], check=False)
         except Exception:
             pass
     
@@ -761,7 +598,7 @@ def get_color_name(hsv_pixel: np.ndarray) -> tuple:
     return (f"{name_en} {precision}", f"{name_it} {precision}", hex_code)
 
 
-def detect_dominant_color(frame: np.ndarray, center_size: int = 50, calib_manager=None) -> dict:
+def detect_dominant_color(frame: np.ndarray, center_size: int = 50) -> dict:
     """
     Rileva il colore dominante al centro del frame.
     
@@ -785,17 +622,9 @@ def detect_dominant_color(frame: np.ndarray, center_size: int = 50, calib_manage
     avg_color_bgr = np.mean(roi, axis=(0, 1)).astype(int)
     b, g, r = avg_color_bgr
     
-    # --- APPLICA CALIBRAZIONE ---
-    if calib_manager and calib_manager.matrix is not None:
-        r, g, b = calib_manager.apply((r, g, b))
-        # Ricostruisci BGR corretto per le conversioni successive
-        avg_color_bgr = np.array([b, g, r], dtype=np.uint8)
-    
     # Converti in HSV per il riconoscimento del nome
-    # Nota: Usiamo avg_color_bgr (che ora potrebbe essere corretto)
-    # Se abbiamo corretto, dobbiamo assicurarci che sia uint8 e shape corretta
     avg_color_hsv = cv2.cvtColor(
-        np.array([[avg_color_bgr]], dtype=np.uint8), 
+        np.uint8([[avg_color_bgr]]), 
         cv2.COLOR_BGR2HSV
     )[0][0]
     
@@ -814,7 +643,7 @@ def detect_dominant_color(frame: np.ndarray, center_size: int = 50, calib_manage
     }
 
 
-def draw_info_overlay(frame: np.ndarray, color_data: dict, calib_manager=None, cam_controls=None) -> np.ndarray:
+def draw_info_overlay(frame: np.ndarray, color_data: dict) -> np.ndarray:
     """Disegna le informazioni del colore sul frame con UI migliorata."""
     height, width = frame.shape[:2]
     cx, cy = color_data['center']
@@ -913,26 +742,6 @@ def draw_info_overlay(frame: np.ndarray, color_data: dict, calib_manager=None, c
     
     # Etichetta Audio ON/OFF (per TTS)
     cv2.putText(frame, "[V] Audio", (width - 120, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
-
-    # --- INFO CALIBRAZIONE ---
-    if calib_manager and calib_manager.state != "IDLE":
-        # Disegna un box rosso grande al centro o in alto
-        msg = calib_manager.step_message
-        text_size = cv2.getTextSize(msg, cv2.FONT_HERSHEY_SIMPLEX, 1.0, 2)[0]
-        text_x = (width - text_size[0]) // 2
-        text_y = 100
-        
-        cv2.rectangle(frame, (text_x - 10, text_y - 30), (text_x + text_size[0] + 10, text_y + 10), (0, 0, 255), -1)
-        cv2.putText(frame, msg, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2)
-    elif calib_manager and calib_manager.matrix is not None:
-         cv2.putText(frame, "CALIBRATED", (width - 120, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
-
-    # --- INFO CAMERA SETTINGS CHANGE ---
-    if cam_controls and (time.time() - cam_controls.last_change_time < 2.0):
-        # Mostra popup messaggio cambiamento setting
-        msg = cam_controls.message
-        cv2.rectangle(frame, (width//2 - 100, 50), (width//2 + 100, 90), (50, 50, 50), -1)
-        cv2.putText(frame, msg, (width//2 - 90, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
     
     return frame
     
@@ -955,28 +764,8 @@ def print_color_to_console(color_data: dict, verbose: bool = True) -> None:
 
 
 def list_cameras() -> list:
-    """Elenca le webcam disponibili in modo robusto su vari OS."""
+    """Elenca le webcam disponibili."""
     cameras = []
-    
-    # 🐧 LINUX Optimization: Cerca direttamente in /dev/video*
-    # Questo metodo è molto più veloce del brute-force su Raspberry Pi
-    if platform.system() == 'Linux':
-        video_devices = glob.glob('/dev/video*')
-        # Filtra e ordina (es. /dev/video0 -> 0)
-        for dev in video_devices:
-            try:
-                # Estrae il numero es. video0 -> 0
-                index = int(dev.replace('/dev/video', ''))
-                # Verifichiamo comunque se è apribile (a volte sono loopback devices)
-                cap = cv2.VideoCapture(index)
-                if cap.isOpened():
-                     cameras.append(index)
-                     cap.release()
-            except ValueError:
-                pass
-        return sorted(cameras)
-
-    # 🍎 MAC / 🪟 WINDOWS: Brute force standard (va bene, ce ne sono poche)
     for i in range(10):
         cap = cv2.VideoCapture(i)
         if cap.isOpened():
@@ -1069,10 +858,6 @@ def main():
             print("Suggerimento: Chiudi il Monitor Seriale di Arduino IDE e controlla il nome della porta.")
             arduino = None
     # --------------------------------
-    
-    # --- INIZIALIZZAZIONE CONTROLLI CAMERA ---
-    # Inizializziamo DOPO aver aperto la camera
-    cam_controls = CameraControls(cap)
 
     
     print("\n" + "-" * 60)
@@ -1082,10 +867,6 @@ def main():
     print("  [V]      - Audio feedback (toggle)")
     print("  [+/-]    - Aumenta/Diminuisci area di rilevamento")
     print("  [I]      - Inverti Colori (Fix LED 'Rosa'/Common Anode)")
-    print("  [0]      - AVVIA CALIBRAZIONE MANUALE (Mostra R, G, B)")
-    print("  [Z/X]    - Saturazione -/+")
-    print("  [B/N]    - Luminosità -/+")
-    print("  [K]      - Toggle Auto WB (se supp.)")
     print("  [S]      - Salva screenshot")
     print("  [Q/ESC]  - Esci")
     print("-" * 60 + "\n")
@@ -1114,7 +895,7 @@ def main():
                 break
             
             # Rileva il colore (Analisi Dominante)
-            color_data = detect_dominant_color(frame, roi_size, calib_manager=calibration)
+            color_data = detect_dominant_color(frame, roi_size)
             
             # Modalità continua
             if continuous_mode:
@@ -1216,7 +997,7 @@ def main():
             # ------------------------------------
             
             # Disegna overlay
-            display_frame = draw_info_overlay(frame.copy(), color_data, calib_manager=calibration, cam_controls=cam_controls)
+            display_frame = draw_info_overlay(frame, color_data)
             
             # Indicatore audio sullo schermo
             if audio_mode:
@@ -1263,35 +1044,6 @@ def main():
                     COMMON_ANODE = not COMMON_ANODE
                     state = "ATTIVA (LED Invertiti/Common Anode)" if COMMON_ANODE else "DISATTIVA (Standard)"
                     print(f"\n🔄 Modalità Inversione Colore: {state}")
-                elif key == ord('0'):
-                    # Passiamo il colore CRUDO (non corretto) alla calibrazione?
-                    # No, dobbiamo passare quello che vede la camera ORA.
-                    # detect_dominant_color applica già la correzione se esiste, 
-                    # MA durante la calibrazione vogliamo i dati GREZZI.
-                    # Quindi dobbiamo ri-calcolare il colore grezzo per lo step di calibrazione.
-                    # Fortunatamente detect_dominant_color non modifica il frame originale.
-                    
-                    # Estraiamo il colore grezzo al volo
-                    h_c, w_c = frame.shape[:2]
-                    cx_c, cy_c = w_c // 2, h_c // 2
-                    half_c = roi_size // 2
-                    roi_c = frame[cy_c - half_c:cy_c + half_c, cx_c - half_c:cx_c + half_c]
-                    raw_bgr = np.mean(roi_c, axis=(0, 1)).astype(int)
-                    raw_rgb = (raw_bgr[2], raw_bgr[1], raw_bgr[0])
-                    
-                    calibration.process_step(raw_rgb)
-                
-                # --- CAM CONTROLS ---
-                elif key == ord('z'): # Saturation DOWN
-                    cam_controls.adjust('Saturation', -5)
-                elif key == ord('x'): # Saturation UP
-                    cam_controls.adjust('Saturation', 5)
-                elif key == ord('b'): # Brightness DOWN
-                    cam_controls.adjust('Brightness', -5)
-                elif key == ord('n'): # Brightness UP
-                    cam_controls.adjust('Brightness', 5)
-                elif key == ord('k'): # Toggle AutoWB
-                    cam_controls.toggle_autowb()
     
     finally:
         cap.release()
