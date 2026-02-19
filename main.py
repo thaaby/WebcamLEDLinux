@@ -114,6 +114,152 @@ class SoundSynth:
             
         return pygame.sndarray.make_sound(audio_data)
 
+    def generate_drum_hit(self, freq, duration=0.4, volume=0.5):
+        """
+        Genera un colpo di batteria sintetico.
+        Noise burst + sine sweep discendente per un suono percussivo.
+        """
+        if not PYGAME_AVAILABLE: return None
+        
+        n_samples = int(self.sample_rate * duration)
+        t = np.linspace(0, duration, n_samples, False)
+        
+        # Corpo: Sine sweep da freq alta a freq bassa (kick-like)
+        sweep_freq = freq * 4.0 * np.exp(-8.0 * t)
+        body = np.sin(2 * np.pi * sweep_freq * t) * 0.8
+        
+        # Rumore percussivo (snare/hi-hat character)
+        noise = np.random.uniform(-1, 1, n_samples) * 0.3
+        noise_env = np.exp(-15.0 * t)  # Decadimento molto rapido
+        noise *= noise_env
+        
+        wave = (body + noise) * volume * 0.5
+        
+        # Envelope: attacco istantaneo, decadimento rapido
+        envelope = np.exp(-6.0 * t)
+        attack_len = int(self.sample_rate * 0.005)
+        if attack_len > 0:
+            envelope[:attack_len] *= np.linspace(0, 1, attack_len)
+        
+        wave *= envelope
+        
+        audio_data = (wave * 32767).astype(np.int16)
+        if not audio_data.flags['C_CONTIGUOUS']:
+            audio_data = np.ascontiguousarray(audio_data)
+        return pygame.sndarray.make_sound(audio_data)
+
+    def generate_synth_pad(self, freq, duration=2.0, volume=0.5):
+        """
+        Genera un pad sintetico ambient.
+        Layer di onde leggermente detunate con attacco lento.
+        """
+        if not PYGAME_AVAILABLE: return None
+        
+        n_samples = int(self.sample_rate * duration)
+        t = np.linspace(0, duration, n_samples, False)
+        
+        # 3 oscillatori leggermente detunati (chorus effect)
+        wave  = np.sin(2 * np.pi * freq * t) * 0.5
+        wave += np.sin(2 * np.pi * (freq * 1.005) * t) * 0.3  # +5 cents
+        wave += np.sin(2 * np.pi * (freq * 0.995) * t) * 0.3  # -5 cents
+        # Sub oscillatore (ottava sotto)
+        wave += np.sin(2 * np.pi * (freq * 0.5) * t) * 0.2
+        
+        wave *= volume * 0.3
+        
+        # Envelope: attacco lento, sustain, rilascio lento
+        attack_time = 0.3
+        release_time = 0.5
+        envelope = np.ones(n_samples)
+        attack_len = int(self.sample_rate * attack_time)
+        release_len = int(self.sample_rate * release_time)
+        if attack_len > 0:
+            envelope[:attack_len] = np.linspace(0, 1, attack_len)
+        if release_len > 0 and release_len < n_samples:
+            envelope[-release_len:] = np.linspace(1, 0, release_len)
+        
+        wave *= envelope
+        
+        audio_data = (wave * 32767).astype(np.int16)
+        if not audio_data.flags['C_CONTIGUOUS']:
+            audio_data = np.ascontiguousarray(audio_data)
+        return pygame.sndarray.make_sound(audio_data)
+
+    def generate_pluck(self, freq, duration=1.0, volume=0.5):
+        """
+        Genera un suono di corda pizzicata (Karplus-Strong semplificato).
+        Breve burst di rumore filtrato con rapido decadimento.
+        """
+        if not PYGAME_AVAILABLE: return None
+        
+        n_samples = int(self.sample_rate * duration)
+        t = np.linspace(0, duration, n_samples, False)
+        
+        # Impulso iniziale: mix di noise + fondamentale
+        wave = np.sin(2 * np.pi * freq * t) * 0.6
+        wave += np.sin(2 * np.pi * freq * 2 * t) * 0.25  # 2a armonica
+        wave += np.sin(2 * np.pi * freq * 3 * t) * 0.1   # 3a armonica
+        
+        # Rumore iniziale breve (simulazione plettro)
+        noise_duration = 0.015
+        noise_samples = int(self.sample_rate * noise_duration)
+        noise = np.random.uniform(-1, 1, min(noise_samples, n_samples)) * 0.4
+        wave[:len(noise)] += noise
+        
+        wave *= volume * 0.4
+        
+        # Envelope: attacco immediato, decadimento rapido
+        envelope = np.exp(-4.0 * t)
+        attack_len = int(self.sample_rate * 0.003)
+        if attack_len > 0:
+            envelope[:attack_len] *= np.linspace(0, 1, attack_len)
+        
+        wave *= envelope
+        
+        audio_data = (wave * 32767).astype(np.int16)
+        if not audio_data.flags['C_CONTIGUOUS']:
+            audio_data = np.ascontiguousarray(audio_data)
+        return pygame.sndarray.make_sound(audio_data)
+
+    def generate_organ(self, freq, duration=1.5, volume=0.5):
+        """
+        Genera un suono d'organo (armoniche dispari sovrapposte).
+        Simile a un'onda quadra addolcita, ricco e sostenuto.
+        """
+        if not PYGAME_AVAILABLE: return None
+        
+        n_samples = int(self.sample_rate * duration)
+        t = np.linspace(0, duration, n_samples, False)
+        
+        # Armoniche dispari (carattere organo/square wave)
+        wave  = np.sin(2 * np.pi * freq * t) * 1.0       # Fondamentale
+        wave += np.sin(2 * np.pi * freq * 3 * t) * 0.33   # 3a armonica
+        wave += np.sin(2 * np.pi * freq * 5 * t) * 0.2    # 5a armonica
+        wave += np.sin(2 * np.pi * freq * 7 * t) * 0.14   # 7a armonica
+        wave += np.sin(2 * np.pi * freq * 9 * t) * 0.11   # 9a armonica
+        
+        # Leggero tremolo (vibrato d'organo)
+        tremolo = 1.0 + (0.03 * np.sin(2 * np.pi * 5.5 * t))
+        wave *= tremolo
+        
+        wave *= volume * 0.25
+        
+        # Envelope: attacco veloce, sustain piatto, rilascio medio  
+        envelope = np.ones(n_samples)
+        attack_len = int(self.sample_rate * 0.03)
+        release_len = int(self.sample_rate * 0.3)
+        if attack_len > 0:
+            envelope[:attack_len] = np.linspace(0, 1, attack_len)
+        if release_len > 0 and release_len < n_samples:
+            envelope[-release_len:] *= np.exp(-3.0 * np.linspace(0, 1, release_len))
+        
+        wave *= envelope
+        
+        audio_data = (wave * 32767).astype(np.int16)
+        if not audio_data.flags['C_CONTIGUOUS']:
+            audio_data = np.ascontiguousarray(audio_data)
+        return pygame.sndarray.make_sound(audio_data)
+
 # Inizializza Synth
 synth = SoundSynth()
 
@@ -153,8 +299,21 @@ def get_frequency_from_hsv(h, s, v):
     return freq
 
 last_played_note_time = 0
-NOTE_COOLDOWN = 0.5  # Tempo "Zen"
+NOTE_COOLDOWN = 0.5  # Cooldown minimo tra note diverse
 current_playing_freq = 0
+same_note_repeat_count = 0  # Contatore ripetizioni stessa nota
+
+# ============================================================
+# STRUMENTI MUSICALI - Selezione Timbro
+# ============================================================
+INSTRUMENTS = [
+    {'name': 'Zen Bell',  'icon': 'BELL',  'method': 'generate_relaxing_wave'},
+    {'name': 'Drums',     'icon': 'DRUM',  'method': 'generate_drum_hit'},
+    {'name': 'Synth Pad', 'icon': 'SYNTH', 'method': 'generate_synth_pad'},
+    {'name': 'Pluck',     'icon': 'PLUCK', 'method': 'generate_pluck'},
+    {'name': 'Organ',     'icon': 'ORGAN', 'method': 'generate_organ'},
+]
+current_instrument_index = 0
 
 
 # ============================================================
@@ -526,13 +685,15 @@ def speak_color(color_name: str):
 
 
 def play_color_note(hsv_tuple):
-    """Riproduce la nota basata sui valori HSV precisi."""
-    global last_played_note_time, current_playing_freq
+    """Riproduce la nota basata sui valori HSV precisi, usando lo strumento corrente."""
+    global last_played_note_time, current_playing_freq, same_note_repeat_count
     
     if not PYGAME_AVAILABLE: return
     
     current_time = time.time()
-    if current_time - last_played_note_time < NOTE_COOLDOWN:
+    elapsed = current_time - last_played_note_time
+    
+    if elapsed < NOTE_COOLDOWN:
         return
         
     h, s, v = hsv_tuple
@@ -543,14 +704,28 @@ def play_color_note(hsv_tuple):
 
     freq = get_frequency_from_hsv(h, s, v)
     
-    # Evita di riprodurre la stessa nota a raffica
-    # Tolleranza di 5Hz per considerare la nota "uguale"
-    if abs(freq - current_playing_freq) > 3 or (current_time - last_played_note_time > 0.8):
-        sound = synth.generate_relaxing_wave(freq, duration=2.0, volume=0.5)
-        if sound:
-            sound.play()
-            last_played_note_time = current_time
-            current_playing_freq = freq
+    # Controlla se è una nota nuova o la stessa
+    is_new_note = abs(freq - current_playing_freq) > 3
+    
+    if is_new_note:
+        # Nota nuova! Suona subito e resetta il contatore
+        same_note_repeat_count = 0
+    else:
+        # Stessa nota: cooldown adattivo che cresce ad ogni ripetizione
+        # 1a ripetizione: 3s, 2a: 6s, 3a: 12s, poi max 15s
+        adaptive_cooldown = min(15.0, 3.0 * (2 ** same_note_repeat_count))
+        if elapsed < adaptive_cooldown:
+            return
+        same_note_repeat_count += 1
+    
+    # Usa lo strumento corrente selezionato
+    instrument = INSTRUMENTS[current_instrument_index]
+    generate_method = getattr(synth, instrument['method'])
+    sound = generate_method(freq, duration=2.0, volume=0.5)
+    if sound:
+        sound.play()
+        last_played_note_time = current_time
+        current_playing_freq = freq
 
 def find_closest_color(rgb):
     """
@@ -743,6 +918,11 @@ def draw_info_overlay(frame: np.ndarray, color_data: dict) -> np.ndarray:
     # Etichetta Audio ON/OFF (per TTS)
     cv2.putText(frame, "[V] Audio", (width - 120, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
     
+    # Etichetta Strumento corrente
+    instrument = INSTRUMENTS[current_instrument_index]
+    instr_text = f"[T] {instrument['icon']}: {instrument['name']}"
+    cv2.putText(frame, instr_text, (width - 280, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+    
     return frame
     
     return frame
@@ -830,7 +1010,7 @@ def main():
     # --- INIZIALIZZAZIONE ARDUINO ---
     # --- INIZIALIZZAZIONE ARDUINO ---
     # --- INIZIALIZZAZIONE ARDUINO ---
-    global arduino, COMMON_ANODE
+    global arduino, COMMON_ANODE, current_instrument_index
     if serial:
         # ⚠️ CHECK CRITICO PER CONFLITTO LIBRERIE
         if not hasattr(serial, 'Serial'):
@@ -867,6 +1047,7 @@ def main():
     print("  [V]      - Audio feedback (toggle)")
     print("  [+/-]    - Aumenta/Diminuisci area di rilevamento")
     print("  [I]      - Inverti Colori (Fix LED 'Rosa'/Common Anode)")
+    print("  [T]      - Cambia strumento musicale")
     print("  [S]      - Salva screenshot")
     print("  [Q/ESC]  - Esci")
     print("-" * 60 + "\n")
@@ -875,7 +1056,7 @@ def main():
     
     roi_size = 50
     continuous_mode = False
-    audio_mode = False
+    audio_mode = True
     last_color = None
     last_spoken_color = None
     
@@ -1044,6 +1225,10 @@ def main():
                     COMMON_ANODE = not COMMON_ANODE
                     state = "ATTIVA (LED Invertiti/Common Anode)" if COMMON_ANODE else "DISATTIVA (Standard)"
                     print(f"\n🔄 Modalità Inversione Colore: {state}")
+                elif key == ord('t'):
+                    current_instrument_index = (current_instrument_index + 1) % len(INSTRUMENTS)
+                    instr = INSTRUMENTS[current_instrument_index]
+                    print(f"\n🎵 Strumento: {instr['icon']} {instr['name']}")
     
     finally:
         cap.release()
