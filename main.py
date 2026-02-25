@@ -41,7 +41,6 @@ class SoundSynth:
         self.bits = 16
         if PYGAME_AVAILABLE:
             try:
-                # Re-inizializza mixer per bassa latenza
                 pygame.mixer.quit()
                 pygame.mixer.init(frequency=sample_rate, size=-16, channels=1, buffer=512)
             except Exception as e:
@@ -1590,7 +1589,7 @@ def draw_palette_overlay(frame: np.ndarray, palette: list, grid_size: int = 3) -
 
 def export_palette(palette: list, frame: np.ndarray = None) -> str:
     """
-    Esporta la palette corrente come JSON + PNG.
+    Esporta la palette corrente come JSON + PNG (griglia quadrata).
     Ritorna il nome del file salvato.
     """
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1614,29 +1613,37 @@ def export_palette(palette: list, frame: np.ndarray = None) -> str:
     with open(json_filename, 'w', encoding='utf-8') as f:
         json.dump(json_data, f, indent=2, ensure_ascii=False)
     
-    # --- PNG Swatch ---
-    swatch_w = 80
-    swatch_h = 80
-    text_h = 40
+    # --- PNG Swatch (GRIGLIA QUADRATA) ---
+    swatch_w = 100
+    swatch_h = 100
+    text_h = 35
     n = len(palette)
     if n == 0:
         return json_filename
     
-    img_w = n * swatch_w
-    img_h = swatch_h + text_h
+    # Calcola griglia quadrata
+    cols = math.ceil(math.sqrt(n))
+    rows = math.ceil(n / cols)
+    
+    img_w = cols * swatch_w
+    img_h = rows * (swatch_h + text_h)
     img = np.zeros((img_h, img_w, 3), dtype=np.uint8)
-    img[:] = (30, 30, 30)  # Sfondo scuro
+    img[:] = (30, 30, 30)
     
     for i, color in enumerate(palette):
-        x = i * swatch_w
+        col = i % cols
+        row = i // cols
+        x = col * swatch_w
+        y = row * (swatch_h + text_h)
+        
         # Swatch colore
-        cv2.rectangle(img, (x + 2, 2), (x + swatch_w - 2, swatch_h - 2), color['bgr'], -1)
-        cv2.rectangle(img, (x + 2, 2), (x + swatch_w - 2, swatch_h - 2), (255, 255, 255), 1)
-        # Testo HEX
-        cv2.putText(img, color['hex'], (x + 5, swatch_h + 18), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.35, (200, 200, 200), 1)
+        cv2.rectangle(img, (x + 2, y + 2), (x + swatch_w - 2, y + swatch_h - 2), color['bgr'], -1)
+        cv2.rectangle(img, (x + 2, y + 2), (x + swatch_w - 2, y + swatch_h - 2), (255, 255, 255), 1)
+        # HEX
+        cv2.putText(img, color['hex'], (x + 5, y + swatch_h + 16), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
         # Nome
-        cv2.putText(img, color['name_it'][:8], (x + 5, swatch_h + 33), 
+        cv2.putText(img, color['name_it'][:10], (x + 5, y + swatch_h + 30), 
                     cv2.FONT_HERSHEY_SIMPLEX, 0.3, (150, 150, 150), 1)
     
     png_filename = f"palette_{timestamp}.png"
@@ -1879,7 +1886,6 @@ def main():
         else:
             try:
                 print(f"🔌 Tentativo di connessione a {ARDUINO_PORT}...")
-                # 'write_timeout=0.1' è fondamentale se Arduino è "bloccato" da sensori lenti
                 arduino = serial.Serial(ARDUINO_PORT, BAUD_RATE, timeout=0.1, write_timeout=0.1)
                 time.sleep(2)  # Pausa FONDAMENTALE per il reset di Arduino
                 
@@ -1919,20 +1925,18 @@ def main():
     # Variabili per lo smoothing (Arduino)
     prev_r, prev_g, prev_b = 0, 0, 0
     
-    # ADAPTIVE RATE LIMITING (Auto-Throttling)
-    # Se Arduino è lento (timeout), aumentiamo questo valore.
-    # Se Arduino è veloce, lo diminuiamo.
-    loop_delay = 0.05
+
     
     # === INTERVENTO 5: Smoothing Temporale ===
     prev_lab = None  # Stato precedente per EMA su LAB
     
     # === MODALITÀ GRIGLIA/PALETTE ===
-    grid_mode = False
-    grid_size_idx = 1  # Indice in GRID_SIZES (default 5x5)
+    grid_mode = True
+    grid_size_idx = 0  # Indice in GRID_SIZES (3x3 = 9 punti)
     current_palette = []  # Palette corrente estratta
     last_sent_palette = []  # Cache ultima palette inviata ad Arduino
     last_palette_send_time = 0  # Timestamp ultimo invio palette
+    
     
     try:
         while True:
@@ -1940,6 +1944,7 @@ def main():
             if not ret:
                 print("❌ Errore lettura frame!")
                 break
+            
             
             # Rimuovi effetto specchio (flip orizzontale)
             frame = cv2.flip(frame, 1)
@@ -2051,24 +2056,16 @@ def main():
                         msg = f"{pulsing_r},{pulsing_g},{pulsing_b}\n"
                         arduino.write(msg.encode('utf-8'))
                     
-                    # SUCCESSO: accelera
-                    loop_delay = max(0.05, loop_delay - 0.01)
+                    pass  # Invio riuscito
 
                 except serial.SerialTimeoutException:
-                     # TIMEOUT: Arduino è occupato (es. sta leggendo sensore ultrasuoni)
-                     # RALLENTIAMO il loop per dargli respiro
-                     loop_delay = min(0.5, loop_delay + 0.05)
-                     if loop_delay > 0.15:
-                         print(f"⚠️ Arduino Busy (Ultrasonic?) - Slowing down... (Delay: {loop_delay:.2f}s)")
+                    pass  # Timeout scrittura, skip questo frame
                 
                 except Exception as e:
                     print(f"Errore scrittura: {e}")
             
-            # --- IL SEGRETO DEL SUCCESSO ---
-            # --- IL SEGRETO DEL SUCCESSO (ADAPTIVE) ---
-            # Questa pausa dinamica si adatta alla velocità di Arduino
-            time.sleep(loop_delay)
-            # ------------------------------------------
+            # --- PAUSA LOOP ---
+            time.sleep(0.05)
 
             
             # === SINESTESIA (MODALITÀ SONORA) ===
