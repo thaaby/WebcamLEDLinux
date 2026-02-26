@@ -2111,7 +2111,7 @@ def main():
             # MOSTRA A VIDEO SOLO SE HEADLESS_MODE È FALSE
             if not HEADLESS_MODE:
                 # Mostra il frame
-                cv2.imshow('Webcam Color Detector - Professional', display_frame)
+                cv2.imshow('Webcam Color Detector - DLF', display_frame)
                 
                 # Gestione input
                 key = cv2.waitKey(1) & 0xFF
