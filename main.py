@@ -646,7 +646,7 @@ INSTRUMENTS = [
     {'name': 'Glass Harmonica',  'icon': '✨',    'method': 'generate_glass_harmonica'},
     {'name': 'Cosmic Pad',       'icon': '🪐',    'method': 'generate_cosmic_pad'},
 ]
-current_instrument_index = 0
+current_instrument_index = 2  # Synth Pad come default
 
 
 # ============================================================
