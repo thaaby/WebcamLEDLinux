@@ -1183,7 +1183,7 @@ def get_color_name(hsv_pixel: np.ndarray) -> tuple:
 def get_color_name_from_rgb(rgb_tuple: tuple) -> tuple:
     """
     Determina il nome del colore direttamente da RGB usando LAB Delta-E.
-    Evita il roundtrip HSV→RGB che perde precisione.
+    Evita il roundtrip HSV->RGB che perde precisione.
     Ritorna (nome_en, nome_it, hex_code) o None se non trovato.
     """
     name_en, name_it, hex_code, distance = find_closest_color(rgb_tuple)
@@ -1252,7 +1252,7 @@ def _apply_bradford_cat(rgb: tuple, gains: np.ndarray) -> tuple:
     Trasforma i colori dallo spazio dell'illuminante stimato a D65 standard.
     L'illuminante viene stimato dai guadagni WB.
     """
-    # Matrice Bradford (Forward: XYZ → LMS cone space)
+    # Matrice Bradford (Forward: XYZ -> LMS cone space)
     M_brad = np.array([
         [ 0.8951,  0.2664, -0.1614],
         [-0.7502,  1.7135,  0.0367],
@@ -1269,7 +1269,7 @@ def _apply_bradford_cat(rgb: tuple, gains: np.ndarray) -> tuple:
     src_rgb = np.array([1.0 / max(g, 0.01) for g in gains])
     src_rgb = src_rgb / np.max(src_rgb)  # Normalizza
     
-    # RGB → XYZ (sRGB linearizzato)
+    # RGB -> XYZ (sRGB linearizzato)
     def linearize(c):
         return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
     
@@ -1298,7 +1298,7 @@ def _apply_bradford_cat(rgb: tuple, gains: np.ndarray) -> tuple:
     input_xyz = M_rgb_to_xyz @ input_linear
     adapted_xyz = M_adapt @ input_xyz
     
-    # XYZ → RGB (inversa)
+    # XYZ -> RGB (inversa)
     M_xyz_to_rgb = np.linalg.inv(M_rgb_to_xyz)
     adapted_linear = M_xyz_to_rgb @ adapted_xyz
     
@@ -1342,7 +1342,7 @@ def calibrate_white_balance(frame: np.ndarray, center_size: int = 80) -> np.ndar
 def detect_dominant_color(frame: np.ndarray, center_size: int = 50) -> dict:
     """
     Rileva il colore dominante al centro del frame.
-    Pipeline migliorata: CLAHE → WB → K-Means → Bradford → LAB matching.
+    Pipeline migliorata: CLAHE -> WB -> K-Means -> Bradford -> LAB matching.
     
     Args:
         frame: Frame della webcam in formato BGR
@@ -1905,7 +1905,7 @@ def main():
     print("  [SPAZIO] - Cattura e stampa colore in console")
     print("  [C]      - Stampa continua colori (toggle)")
     print("  [V]      - Audio feedback (toggle)")
-    print("  [G]      - Modalità Griglia/Palette (3x3 → 5x5 → 7x7 → off)")
+    print("  [G]      - Modalità Griglia/Palette (3x3 -> 5x5 -> 7x7 -> off)")
     print("  [P]      - Esporta palette (JSON + PNG)")
     print("  [+/-]    - Aumenta/Diminuisci area di rilevamento")
     print("  [I]      - Inverti Colori (Fix LED 'Rosa'/Common Anode)")
@@ -1949,7 +1949,7 @@ def main():
             # Rimuovi effetto specchio (flip orizzontale)
             frame = cv2.flip(frame, 1)
             
-            # Rileva il colore (Pipeline Avanzata: CLAHE → WB → K-Means → Bradford)
+            # Rileva il colore (Pipeline Avanzata: CLAHE -> WB -> K-Means -> Bradford)
             color_data = detect_dominant_color(frame, roi_size)
             
             # === INTERVENTO 5: Smoothing Temporale su LAB ===
@@ -1958,7 +1958,7 @@ def main():
                 if prev_lab is not None:
                     smoothed_lab = prev_lab * (1 - TEMPORAL_ALPHA) + current_lab * TEMPORAL_ALPHA
                     prev_lab = smoothed_lab
-                    # Riconverti LAB smoothed → nome colore
+                    # Riconverti LAB smoothed -> nome colore
                     smoothed_color_info = None
                     min_dist = float('inf')
                     for color in COLOR_DATABASE:
@@ -2086,9 +2086,9 @@ def main():
             grid_colors = []
             if grid_mode:
                 grid_colors = detect_grid_colors(frame, GRID_SIZES[grid_size_idx])
-                current_palette = grid_colors  # 1:1 — nessuna deduplica!
+                current_palette = grid_colors  # 1:1 - nessuna deduplica!
             
-            # Disegna overlay (crosshair, info panel — DOPO il campionamento)
+            # Disegna overlay (crosshair, info panel - DOPO il campionamento)
             display_frame = draw_info_overlay(frame, color_data)
             
             # Disegna griglia e palette sopra il display frame
