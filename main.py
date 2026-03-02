@@ -16,7 +16,7 @@ try:
     import serial.tools.list_ports
 except ImportError:
     serial = None
-    print("⚠️  pyserial non installato. Installa con: pip install pyserial")
+    print(" pyserial non installato. Installa con: pip install pyserial")
 
 
 # Prova a importare pygame per la riproduzione audio (Cross-platform)
@@ -26,10 +26,10 @@ try:
     PYGAME_AVAILABLE = True
 except ImportError:
     PYGAME_AVAILABLE = False
-    print("⚠️  pygame non installato. Installa con: pip install pygame")
+    print("pygame non installato. Installa con: pip install pygame")
 except Exception as e:
     PYGAME_AVAILABLE = False
-    print(f"⚠️  Errore inizializzazione pygame: {e}")
+    print(f" Errore inizializzazione pygame: {e}")
 
 # ============================================================
 # SINESTESIA DIGITALE - MOTORE SONORO
@@ -637,14 +637,14 @@ INSTRUMENTS = [
     {'name': 'Pluck',     'icon': 'PLUCK', 'method': 'generate_pluck'},
     {'name': 'Organ',     'icon': 'ORGAN', 'method': 'generate_organ'},
     # --- LIBRERIA SYNTH RILASSANTI ---
-    {'name': 'Crystal Bowl',     'icon': '🔮',    'method': 'generate_crystal_bowl'},
-    {'name': 'Deep Drone',       'icon': '🌊',    'method': 'generate_deep_drone'},
-    {'name': 'Ethereal Choir',   'icon': '👼',    'method': 'generate_ethereal_choir'},
-    {'name': 'Ocean Pad',        'icon': '🌅',    'method': 'generate_ocean_pad'},
-    {'name': 'Wind Chimes',      'icon': '🎐',    'method': 'generate_wind_chimes'},
-    {'name': 'Binaural Theta',   'icon': '🧘',    'method': 'generate_binaural_theta'},
-    {'name': 'Glass Harmonica',  'icon': '✨',    'method': 'generate_glass_harmonica'},
-    {'name': 'Cosmic Pad',       'icon': '🪐',    'method': 'generate_cosmic_pad'},
+    {'name': 'Crystal Bowl',     'icon': 'BOWL',    'method': 'generate_crystal_bowl'},
+    {'name': 'Deep Drone',       'icon': 'WAVE',    'method': 'generate_deep_drone'},
+    {'name': 'Ethereal Choir',   'icon': 'CHOIR',    'method': 'generate_ethereal_choir'},
+    {'name': 'Ocean Pad',        'icon': 'OCEAN',    'method': 'generate_ocean_pad'},
+    {'name': 'Wind Chimes',      'icon': 'CHIME',    'method': 'generate_wind_chimes'},
+    {'name': 'Binaural Theta',   'icon': 'ZEN',    'method': 'generate_binaural_theta'},
+    {'name': 'Glass Harmonica',  'icon': 'SPARK',    'method': 'generate_glass_harmonica'},
+    {'name': 'Cosmic Pad',       'icon': 'COSMO',    'method': 'generate_cosmic_pad'},
 ]
 current_instrument_index = 2  # Synth Pad come default
 
@@ -655,17 +655,17 @@ current_instrument_index = 2  # Synth Pad come default
 
 # --- FUNZIONE DI RICERCA AUTOMATICA ---
 def find_arduino_port():
-    print("🔍 Scansione porte seriali...")
+    print("[SCAN] Scansione porte seriali...")
     ports = list(serial.tools.list_ports.comports())
     
     for p in ports:
         # Controlla se nella descrizione della porta c'è "Arduino" o parole chiave simili
         # (Funziona sia su Mac che su Raspberry Pi)
         if "Arduino" in p.description or "usbmodem" in p.device or "ttyACM" in p.device or "usbserial" in p.device or "ttyUSB" in p.device:
-            print(f"✅ Arduino trovato su: {p.device}")
+            print(f"[OK] Arduino trovato su: {p.device}")
             return p.device
             
-    print("❌ Nessun Arduino trovato!")
+    print("[X] Nessun Arduino trovato!")
     return None
 
 ARDUINO_PORT = None  # Verrà impostato in main()
@@ -1171,11 +1171,11 @@ def get_color_name(hsv_pixel: np.ndarray) -> tuple:
     
     # Aggiungi indicatore di precisione
     if distance < 5:
-        precision = "●"  # Molto preciso
+        precision = "*"  # Molto preciso
     elif distance < 15:
-        precision = "◐"  # Buono
+        precision = "~"  # Buono
     else:
-        precision = "○"  # Approssimativo
+        precision = "o"  # Approssimativo
     
     return (f"{name_en} {precision}", f"{name_it} {precision}", hex_code)
 
@@ -1190,11 +1190,11 @@ def get_color_name_from_rgb(rgb_tuple: tuple) -> tuple:
     
     # Aggiungi indicatore di precisione
     if distance < 5:
-        precision = "●"  # Molto preciso
+        precision = "*"  # Molto preciso
     elif distance < 15:
-        precision = "◐"  # Buono
+        precision = "~"  # Buono
     else:
-        precision = "○"  # Approssimativo
+        precision = "o"  # Approssimativo
     
     return (f"{name_en} {precision}", f"{name_it} {precision}", hex_code)
 
@@ -1790,7 +1790,7 @@ def print_color_to_console(color_data: dict, verbose: bool = True) -> None:
     """Stampa le informazioni del colore nella console."""
     if verbose:
         print("\n" + "=" * 50)
-        print(f"🎨 COLORE RILEVATO")
+        print(f"[COLOR] COLORE RILEVATO")
         print("=" * 50)
         print(f"  Nome:    {color_data['name_it']} ({color_data['name_en']})")
         print(f"  HEX:     {color_data['hex']}")
@@ -1816,37 +1816,37 @@ def list_cameras() -> list:
 
 def select_camera() -> int:
     """Permette all'utente di selezionare una webcam."""
-    print("\n🔍 Ricerca webcam disponibili...")
+    print("\n[SCAN] Ricerca webcam disponibili...")
     cameras = list_cameras()
     
     if not cameras:
         # Fallback a 0 se non trova nulla (a volte succede su mac)
-        print("⚠️ Nessuna webcam rilevata esplicitamente, provo con ID 0...")
+        print("[!] Nessuna webcam rilevata esplicitamente, provo con ID 0...")
         return 0
     
-    print(f"\n📷 Webcam trovate: {len(cameras)}")
+    print(f"\n[CAM] Webcam trovate: {len(cameras)}")
     for i, cam_id in enumerate(cameras):
         print(f"  [{cam_id}] Camera {cam_id}")
     
     if len(cameras) == 1:
-        print(f"\n✅ Selezionata automaticamente Camera {cameras[0]}")
+        print(f"\n[OK] Selezionata automaticamente Camera {cameras[0]}")
         return cameras[0]
     
     while True:
         try:
-            choice = input(f"\n👉 Seleziona camera (0-{cameras[-1]}): ")
+            choice = input(f"\n>> Seleziona camera (0-{cameras[-1]}): ")
             cam_id = int(choice)
             if cam_id in cameras:
                 return cam_id
-            print("❌ Camera non valida!")
+            print("[X] Camera non valida!")
         except ValueError:
-            print("❌ Inserisci un numero valido!")
+            print("[X] Inserisci un numero valido!")
 
 
 def main():
     """Funzione principale."""
     print("\n" + "=" * 60)
-    print("  🎨 WEBCAM COLOR DETECTOR - Professional Edition")
+    print("  [COLOR] WEBCAM COLOR DETECTOR - Professional Edition")
     print("  Rileva i colori con precisione CIE LAB Delta-E")
     print("=" * 60)
     
@@ -1854,11 +1854,11 @@ def main():
     camera_id = select_camera()
     
     # Inizializza la webcam
-    print(f"\n📷 Avvio webcam {camera_id}...")
+    print(f"\n[CAM] Avvio webcam {camera_id}...")
     cap = cv2.VideoCapture(camera_id)
     
     if not cap.isOpened():
-        print("❌ Impossibile aprire la webcam!")
+        print("[X] Impossibile aprire la webcam!")
         return
     
     # Imposta risoluzione (HD per la UI)
@@ -1869,10 +1869,10 @@ def main():
     global arduino, COMMON_ANODE, current_instrument_index, ARDUINO_PORT, wb_gains
     ARDUINO_PORT = find_arduino_port()
     if serial:
-        # ⚠️ CHECK CRITICO PER CONFLITTO LIBRERIE
+        # [!] CHECK CRITICO PER CONFLITTO LIBRERIE
         if not hasattr(serial, 'Serial'):
              print("\n" + "!"*60)
-             print("❌ ERRORE CRITICO: CONFLITTO LIBRERIE RILEVATO")
+             print("[X] ERRORE CRITICO: CONFLITTO LIBRERIE RILEVATO")
              print("Hai installato il pacchetto sbagliato 'serial' invece di 'pyserial'.")
              print("SOLUZIONE: Esegui questi comandi nel terminale:")
              print("  pip uninstall -y serial")
@@ -1881,20 +1881,20 @@ def main():
              sys.exit(1) # Uscita pulita con cleanup
 
         if ARDUINO_PORT is None:
-            print("⚠️ Nessuna porta Arduino trovata, proseguo senza LED.")
+            print("[!] Nessuna porta Arduino trovata, proseguo senza LED.")
             arduino = None
         else:
             try:
-                print(f"🔌 Tentativo di connessione a {ARDUINO_PORT}...")
+                print(f"[CONN] Tentativo di connessione a {ARDUINO_PORT}...")
                 arduino = serial.Serial(ARDUINO_PORT, BAUD_RATE, timeout=0.1, write_timeout=0.1)
                 time.sleep(2)  # Pausa FONDAMENTALE per il reset di Arduino
                 
                 # Puliamo i tubi della comunicazione
                 arduino.reset_input_buffer()
                 arduino.reset_output_buffer()
-                print("✅ ARDUINO CONNESSO! Invio dati...")
+                print("[OK] ARDUINO CONNESSO! Invio dati...")
             except Exception as e:
-                print(f"❌ ERRORE: Non riesco a collegarmi. {e}")
+                print(f"[X] ERRORE: Non riesco a collegarmi. {e}")
                 print("Suggerimento: Chiudi il Monitor Seriale di Arduino IDE e controlla il nome della porta.")
                 arduino = None
     # --------------------------------
@@ -1913,7 +1913,7 @@ def main():
     print("  [S]      - Salva screenshot")
     print("  [Q/ESC]  - Esci")
     print("-" * 60 + "\n")
-    print("  LEGENDA PRECISIONE: ● = Eccellente | ◐ = Buona | ○ = Appross.")
+    print("  LEGENDA PRECISIONE: * = Eccellente | ~ = Buona | o = Appross.")
     print("-" * 60 + "\n")
     
     roi_size = 50
@@ -1942,7 +1942,7 @@ def main():
         while True:
             ret, frame = cap.read()
             if not ret:
-                print("❌ Errore lettura frame!")
+                print("[X] Errore lettura frame!")
                 break
             
             
@@ -1969,11 +1969,11 @@ def main():
                             smoothed_color_info = color
                     if smoothed_color_info:
                         if min_dist < 5:
-                            prec = "●"
+                            prec = "*"
                         elif min_dist < 15:
-                            prec = "◐"
+                            prec = "~"
                         else:
-                            prec = "○"
+                            prec = "o"
                         color_data['name_en'] = f"{smoothed_color_info.name} {prec}"
                         color_data['name_it'] = f"{smoothed_color_info.name_it} {prec}"
                 else:
@@ -1988,7 +1988,7 @@ def main():
             # Audio feedback
             if audio_mode:
                 # Rimuovi indicatore precisione per TTS
-                clean_name = color_data['name_it'].replace(' ●', '').replace(' ◐', '').replace(' ○', '')
+                clean_name = color_data['name_it'].replace(' *', '').replace(' ~', '').replace(' o', '')
                 if last_spoken_color != clean_name:
                     # speak_color(clean_name) # TTS Disabilitato per note musicali
                     last_spoken_color = clean_name
@@ -2070,7 +2070,7 @@ def main():
             
             # === SINESTESIA (MODALITÀ SONORA) ===
             # Rimuovi indicatore precisione
-            clean_color_name = color_data['name_en'].replace(' ●', '').replace(' ◐', '').replace(' ○', '')
+            clean_color_name = color_data['name_en'].replace(' *', '').replace(' ~', '').replace(' o', '')
             
             # Se siamo in modalità audio (V) o se vogliamo che suoni sempre
             # Per ora usiamo il toggle audio_mode per attivare/disattivare la musica
@@ -2101,7 +2101,7 @@ def main():
             
             # Indicatore audio sullo schermo
             if audio_mode:
-                cv2.putText(display_frame, "🎵 MUSIC MODE ON", (10, 30), 
+                cv2.putText(display_frame, "[MUSIC] MUSIC MODE ON", (10, 30), 
                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
             
             # Indicatore pipeline attiva
@@ -2117,81 +2117,81 @@ def main():
                 key = cv2.waitKey(1) & 0xFF
                 
                 if key == ord('q') or key == 27:  # Q o ESC
-                    print("\n👋 Arrivederci!")
+                    print("\n[BYE] Arrivederci!")
                     break
                 elif key == ord(' '):  # Spazio
                     print_color_to_console(color_data, verbose=True)
                     if audio_mode:
-                        clean_name = color_data['name_it'].replace(' ●', '').replace(' ◐', '').replace(' ○', '')
+                        clean_name = color_data['name_it'].replace(' *', '').replace(' ~', '').replace(' o', '')
                         # speak_color(clean_name)
                 elif key == ord('c'):  # Toggle modalità continua
                     continuous_mode = not continuous_mode
                     status = "ATTIVATA" if continuous_mode else "DISATTIVATA"
-                    print(f"\n🔄 Modalità continua: {status}")
+                    print(f"\n[TOGGLE] Modalità continua: {status}")
                 elif key == ord('v'):  # Toggle audio
                     audio_mode = not audio_mode
                     status = "ATTIVATO" if audio_mode else "DISATTIVATO"
-                    print(f"\n🔊 Audio feedback: {status}")
+                    print(f"\n[VOL] Audio feedback: {status}")
                     if audio_mode:
                         # speak_color("Audio attivato")
                         pass
                 elif key == ord('+') or key == ord('=') or key == 43:
                     roi_size = min(200, roi_size + 10)
-                    print(f"📐 Area rilevamento: {roi_size}x{roi_size}")
+                    print(f"[SIZE] Area rilevamento: {roi_size}x{roi_size}")
                 elif key == ord('-') or key == ord('_') or key == 45 or key == 173:
                     roi_size = max(10, roi_size - 10)
-                    print(f"📐 Area rilevamento: {roi_size}x{roi_size}")
+                    print(f"[SIZE] Area rilevamento: {roi_size}x{roi_size}")
                 elif key == ord('s'):
                     filename = f"color_capture_{color_data['hex'][1:]}.png"
                     cv2.imwrite(filename, frame)
-                    print(f"📸 Screenshot salvato: {filename}")
+                    print(f"[SNAP] Screenshot salvato: {filename}")
                 elif key == ord('i'):
                     COMMON_ANODE = not COMMON_ANODE
                     state = "ATTIVA (LED Invertiti/Common Anode)" if COMMON_ANODE else "DISATTIVA (Standard)"
-                    print(f"\n🔄 Modalità Inversione Colore: {state}")
+                    print(f"\n[TOGGLE] Modalità Inversione Colore: {state}")
                 elif key == ord('t'):
                     current_instrument_index = (current_instrument_index + 1) % len(INSTRUMENTS)
                     instr = INSTRUMENTS[current_instrument_index]
-                    print(f"\n🎵 Strumento: {instr['icon']} {instr['name']}")
+                    print(f"\n[MUSIC] Strumento: {instr['icon']} {instr['name']}")
                 elif key == ord('g'):
                     # Toggle griglia / cicla dimensione
                     if not grid_mode:
                         grid_mode = True
                         grid_size_idx = 0  # Parte da 3x3
-                        print(f"\n🔲 Modalità Griglia: ON ({GRID_SIZES[grid_size_idx]}x{GRID_SIZES[grid_size_idx]})")
+                        print(f"\n[GRID] Modalità Griglia: ON ({GRID_SIZES[grid_size_idx]}x{GRID_SIZES[grid_size_idx]})")
                     else:
                         grid_size_idx += 1
                         if grid_size_idx >= len(GRID_SIZES):
                             grid_mode = False
                             current_palette = []
-                            print("\n❌ Modalità Griglia: OFF")
+                            print("\n[X] Modalità Griglia: OFF")
                         else:
-                            print(f"\n🔲 Griglia: {GRID_SIZES[grid_size_idx]}x{GRID_SIZES[grid_size_idx]}")
+                            print(f"\n[GRID] Griglia: {GRID_SIZES[grid_size_idx]}x{GRID_SIZES[grid_size_idx]}")
                 elif key == ord('p'):
                     # Esporta palette
                     if current_palette:
                         filename = export_palette(current_palette, frame)
-                        print(f"\n🎨 Palette esportata! {len(current_palette)} colori")
+                        print(f"\n[COLOR] Palette esportata! {len(current_palette)} colori")
                         print(f"   JSON: {filename}")
                         print(f"   PNG:  {filename.replace('.json', '.png')}")
                         # Stampa anche i colori
                         for c in current_palette:
                             print(f"   {c['hex']} - {c['name_it']} (x{c.get('count', 1)})")
                     else:
-                        print("\n⚠️ Attiva prima la griglia con [G] per generare la palette!")
+                        print("\n[!] Attiva prima la griglia con [G] per generare la palette!")
     finally:
         cap.release()
         cv2.destroyAllWindows()
         if arduino:
             try:
                 # Spegni i LED prima di chiudere!
-                print("💡 Spegnimento LED...")
+                print("[LED] Spegnimento LED...")
                 for _ in range(5):
                     arduino.write(b"0,0,0\n")
                     time.sleep(0.05)
                 time.sleep(0.3)  # Attendi che Arduino processi
                 arduino.close()
-                print("✅ LED spenti. Connessione Arduino chiusa.")
+                print("[OK] LED spenti. Connessione Arduino chiusa.")
             except Exception:
                 pass
 
