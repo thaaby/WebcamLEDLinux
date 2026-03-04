@@ -561,16 +561,21 @@ def main():
     print("\n" + "-" * 50)
     print("  CONTROLLI:")
     print("  [G] - Cambia griglia (3x3 -> 5x5 -> 7x7)")
+    print("  [F] - Fullscreen (toggle)")
     print("  [P] - Esporta palette (JSON + PNG)")
     print("  [Q/ESC] - Esci")
     print("-" * 50 + "\n")
     
     grid_size_idx = 0
     current_palette = []
+    fullscreen = False
     
-    # Finestra ridimensionabile
-    cv2.namedWindow('Color Grid', cv2.WINDOW_NORMAL | cv2.WINDOW_FREERATIO)
-    cv2.resizeWindow('Color Grid', 600, 600)
+    # Dimensione canvas (grande, OpenCV scala con WINDOW_NORMAL)
+    CANVAS_SIZE = 800
+    
+    # Finestra ridimensionabile (compatibile GTK/Cocoa/Qt)
+    cv2.namedWindow('Color Grid', cv2.WINDOW_NORMAL)
+    cv2.resizeWindow('Color Grid', CANVAS_SIZE, CANVAS_SIZE)
     
     try:
         while True:
@@ -586,14 +591,8 @@ def main():
             grid_colors = detect_grid_colors(frame, grid_size)
             current_palette = grid_colors
             
-            # Leggi dimensione finestra e genera canvas adattato
-            try:
-                _, _, ww, wh = cv2.getWindowImageRect('Color Grid')
-                if ww < 10 or wh < 10:
-                    ww, wh = 600, 600
-            except:
-                ww, wh = 600, 600
-            canvas = draw_minimal_grid(grid_colors, grid_size, ww, wh)
+            # Genera canvas fisso grande
+            canvas = draw_minimal_grid(grid_colors, grid_size, CANVAS_SIZE, CANVAS_SIZE)
             cv2.imshow('Color Grid', canvas)
             
             # Input
@@ -605,6 +604,14 @@ def main():
             elif key == ord('g'):
                 grid_size_idx = (grid_size_idx + 1) % len(GRID_SIZES)
                 print(f"[GRID] Griglia: {GRID_SIZES[grid_size_idx]}x{GRID_SIZES[grid_size_idx]}")
+            elif key == ord('f'):
+                fullscreen = not fullscreen
+                if fullscreen:
+                    cv2.setWindowProperty('Color Grid', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+                    print("[FULL] Fullscreen ON")
+                else:
+                    cv2.setWindowProperty('Color Grid', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_NORMAL)
+                    print("[FULL] Fullscreen OFF")
             elif key == ord('p'):
                 if current_palette:
                     filename = export_palette(current_palette, grid_size)
