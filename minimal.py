@@ -12,6 +12,8 @@ import json
 import time
 import sys
 from datetime import datetime
+import serial
+import serial.tools.list_ports
 
 # ============================================================
 # DATABASE COLORI
@@ -204,6 +206,34 @@ COLOR_DATABASE = [
     ColorDef('Onyx', 'Onice', (53, 56, 57), '#353839'),
     ColorDef('Ebony', 'Ebano', (85, 93, 80), '#555D50'),
 ]
+
+# ============================================================
+# CONFIGURAZIONE ARDUINO
+# ============================================================
+ARDUINO_PORT = None
+BAUD_RATE = 115200
+GAMMA = 2.5           
+SMOOTHING = 0.15      
+COMMON_ANODE = False  # Premi [I] per invertire i colori
+
+# Disabilitato Black Threshold nel debug di main.py, non strettamente necessario per la griglia
+# ma prepariamo gamma
+gamma_table = np.array([((i / 255.0) ** GAMMA) * 255 for i in np.arange(0, 256)]).astype("uint8")
+
+def apply_gamma(color):
+    """Applica la correzione gamma al colore RGB"""
+    return gamma_table[color]
+
+def find_arduino_port():
+    print("[SCAN] Scansione porte seriali...")
+    ports = list(serial.tools.list_ports.comports())
+    for p in ports:
+        if "Arduino" in p.description or "usbmodem" in p.device or "ttyACM" in p.device or "usbserial" in p.device or "ttyUSB" in p.device:
+            print(f"[OK] Arduino trovato su: {p.device}")
+            return p.device
+    print("[X] Nessun Arduino trovato!")
+    return None
+
 
 # ============================================================
 # FUNZIONI COLORE (LAB + Delta-E CIE2000)
@@ -562,13 +592,31 @@ def main():
     print("  CONTROLLI:")
     print("  [G] - Cambia griglia (3x3 -> 5x5 -> 7x7)")
     print("  [F] - Fullscreen (toggle)")
+    print("  [I] - Inverti colori per LED (Common Anode)")
     print("  [P] - Esporta palette (JSON + PNG)")
     print("  [Q/ESC] - Esci")
     print("-" * 50 + "\n")
     
+    # --- CONNESSIOE ARDUINO ---
+    global COMMON_ANODE
+    arduino = None
+    arduino_port = find_arduino_port()
+    if arduino_port:
+        try:
+            print(f"[CONN] Tentativo di connessione a {arduino_port}...")
+            arduino = serial.Serial(arduino_port, BAUD_RATE, timeout=0.1, write_timeout=0.1)
+            time.sleep(2)  # Pausa reset Arduino
+            arduino.reset_input_buffer()
+            arduino.reset_output_buffer()
+            print("[OK] ARDUINO CONNESSO!")
+        except Exception as e:
+            print(f"[X] ERRORE Seriale: {e}")
+            arduino = None
+    
     grid_size_idx = 0
     current_palette = []
     fullscreen = False
+    last_palette_send_time = 0
     
     # Dimensione canvas (grande, OpenCV scala con WINDOW_NORMAL)
     CANVAS_SIZE = 800
@@ -595,6 +643,31 @@ def main():
             canvas = draw_minimal_grid(grid_colors, grid_size, CANVAS_SIZE, CANVAS_SIZE)
             cv2.imshow('Color Grid', canvas)
             
+            # --- INVIO DATI AD ARDUINO ---
+            if arduino is not None and arduino.is_open:
+                try:
+                    arduino.reset_input_buffer()
+                    
+                    if current_palette:
+                        now = time.time()
+                        if (now - last_palette_send_time) > 0.3:  # Aggiorna ogni 300ms
+                            palette_parts = []
+                            for c in current_palette:
+                                pr, pg, pb = c['rgb']
+                                pr = min(255, max(0, int(apply_gamma(pr))))
+                                pg = min(255, max(0, int(apply_gamma(pg))))
+                                pb = min(255, max(0, int(apply_gamma(pb))))
+                                if COMMON_ANODE:
+                                    pr, pg, pb = 255 - pr, 255 - pg, 255 - pb
+                                palette_parts.append(f"{pr:02X}{pg:02X}{pb:02X}")
+                            
+                            msg = f"P:{len(current_palette)}:{':'.join(palette_parts)}\n"
+                            arduino.write(msg.encode('utf-8'))
+                            last_palette_send_time = now
+                            
+                except Exception as e:
+                    print(f"Errore scrittura Arduino: {e}")
+
             # Input
             key = cv2.waitKey(300) & 0xFF  # 300ms = ~3 FPS (leggero!)
             
@@ -612,6 +685,10 @@ def main():
                 else:
                     cv2.setWindowProperty('Color Grid', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_NORMAL)
                     print("[FULL] Fullscreen OFF")
+            elif key == ord('i'):
+                COMMON_ANODE = not COMMON_ANODE
+                state = "ATTIVA (LED Invertiti/Common Anode)" if COMMON_ANODE else "DISATTIVA (Standard)"
+                print(f"\n[TOGGLE] Modalità Inversione Colore: {state}")
             elif key == ord('p'):
                 if current_palette:
                     filename = export_palette(current_palette, grid_size)
