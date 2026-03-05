@@ -93,7 +93,7 @@ void parseSingle(char* data) {
 }
 
 void loop() {
-  // 1. LEGGI TUTTA la seriale disponibile (SENZA toccare i LED)
+  // 1. LEGGI TUTTA la seriale (SENZA toccare i LED)
   while (Serial.available() > 0) {
     char c = Serial.read();
     
@@ -116,24 +116,35 @@ void loop() {
   
   digitalWrite(13, LOW);
   
-  // 2. AGGIORNA LED solo DOPO aver finito di leggere la seriale
-  //    FastLED.show() disabilita interrupt (~8ms per 256 LED)
-  //    Se lo facciamo durante la lettura, perdiamo byte seriali!
-  if (needsUpdate) {
-    if (paletteMode && paletteSize > 0) {
-      int ledsPerBlock = NUM_LEDS / paletteSize;
-      for (int i = 0; i < NUM_LEDS; i++) {
-        int idx = i / ledsPerBlock;
-        if (idx >= paletteSize) idx = paletteSize - 1;
-        leds[i] = CRGB(paletteR[idx], paletteG[idx], paletteB[idx]);
-      }
-    } else {
-      for (int i = 0; i < NUM_LEDS; i++) {
-        leds[i] = CRGB(currentR, currentG, currentB);
-      }
-    }
-    
-    FastLED.show();
-    needsUpdate = false;
+  // 2. EFFETTO ONDA CONTINUO (eseguito ogni iterazione del loop)
+  // Sfuma tutti i LED di una certa quantità (crea la scia)
+  fadeToBlackBy(leds, NUM_LEDS, 20); // 20 = velocità di dissolvenza
+  
+  // Sposta tutti i LED in avanti di un passo (effetto movimento)
+  for (int i = NUM_LEDS - 1; i > 0; i--) {
+    leds[i] = leds[i - 1];
   }
+  
+  // 3. SE CI SONO NUOVI DATI, inseriscili all'inizio della striscia (led 0)
+  // Per la palette, mescoliamo i colori nel tempo o ne scegliamo uno a rotazione per frame
+  if (paletteMode && paletteSize > 0) {
+    static int colorIdx = 0;
+    // Inserisci il colore corrente della palette al primo LED
+    leds[0] = CRGB(paletteR[colorIdx], paletteG[colorIdx], paletteB[colorIdx]);
+    
+    // Cambia colore alla prossima iterazione (crea un pattern misto se la palette ha più colori)
+    colorIdx++;
+    if (colorIdx >= paletteSize) {
+      colorIdx = 0;
+    }
+  } else {
+    // Singolo colore (quando non c'è griglia o allo spegnimento 0,0,0)
+    leds[0] = CRGB(currentR, currentG, currentB);
+  }
+  
+  // 4. Mostra i LED e aspetta un istante per controllare la velocità dell'onda
+  FastLED.show();
+  delay(20); // Regola questo per la velocità di scorrimento dell'onda
+  
+  needsUpdate = false; // Flag non più strettamente necessario col loop continuo
 }

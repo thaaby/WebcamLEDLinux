@@ -701,6 +701,19 @@ def main():
     finally:
         cap.release()
         cv2.destroyAllWindows()
+        if arduino:
+            try:
+                print("[LED] Spegnimento LED...")
+                for _ in range(5):
+                    arduino.write(b"0,0,0\n")
+                    time.sleep(0.05)
+                time.sleep(0.3)
+                arduino.close()
+                print("[OK] LED spenti. Connessione Arduino chiusa.")
+            except Exception:
+                pass
+
+
 
 
 if __name__ == "__main__":
