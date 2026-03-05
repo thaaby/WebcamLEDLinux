@@ -22,15 +22,28 @@ int paletteR[MAX_PALETTE];
 int paletteG[MAX_PALETTE];
 int paletteB[MAX_PALETTE];
 
+// Vecchia palette (per crossfade)
+int oldPaletteR[MAX_PALETTE];
+int oldPaletteG[MAX_PALETTE];
+int oldPaletteB[MAX_PALETTE];
+int oldPaletteSize = 0;
+bool oldPaletteMode = false;
+
 int currentR = 0;
 int currentG = 0;
 int currentB = 0;
+
+// --- ANIMAZIONE FILL/SWEEP ---
+float fillPos = 0.0;           // Posizione corrente del cursore (0.0 -> NUM_LEDS)
+bool filling = false;          // Animazione in corso?
+#define FILL_SPEED  4.0        // LED per frame (più alto = più veloce)
+#define FADE_WIDTH  12         // Larghezza della sfumatura sulla "testa" dell'onda
 
 // Flag: nuovi dati da mostrare
 bool needsUpdate = false;
 
 // Buffer seriale
-char inputBuffer[512];  // Grande per 7x7 griglie
+char inputBuffer[512];
 int bufferPos = 0;
 
 void setup() {
@@ -56,7 +69,29 @@ int hexToByte(char hi, char lo) {
   return val;
 }
 
-// Parse "P:N:RRGGBB:RRGGBB:..." — SOLO parse, NON aggiorna LED
+// Colore target per un dato LED in base alla palette corrente
+CRGB getTargetColor(int ledIdx) {
+  if (paletteMode && paletteSize > 0) {
+    int ledsPerBlock = NUM_LEDS / paletteSize;
+    int idx = ledIdx / ledsPerBlock;
+    if (idx >= paletteSize) idx = paletteSize - 1;
+    return CRGB(paletteR[idx], paletteG[idx], paletteB[idx]);
+  }
+  return CRGB(currentR, currentG, currentB);
+}
+
+// Colore della VECCHIA palette per un dato LED (per crossfade)
+CRGB getOldColor(int ledIdx) {
+  if (oldPaletteMode && oldPaletteSize > 0) {
+    int ledsPerBlock = NUM_LEDS / oldPaletteSize;
+    int idx = ledIdx / ledsPerBlock;
+    if (idx >= oldPaletteSize) idx = oldPaletteSize - 1;
+    return CRGB(oldPaletteR[idx], oldPaletteG[idx], oldPaletteB[idx]);
+  }
+  return CRGB(0, 0, 0);
+}
+
+// Parse "P:N:RRGGBB:RRGGBB:..."
 void parsePalette(char* data) {
   char* ptr = data + 2;
   int n = atoi(ptr);
@@ -65,6 +100,15 @@ void parsePalette(char* data) {
   ptr = strchr(ptr, ':');
   if (!ptr) return;
   ptr++;
+  
+  // Salva la palette corrente come "vecchia" per il crossfade
+  oldPaletteSize = paletteSize;
+  oldPaletteMode = paletteMode;
+  for (int i = 0; i < paletteSize; i++) {
+    oldPaletteR[i] = paletteR[i];
+    oldPaletteG[i] = paletteG[i];
+    oldPaletteB[i] = paletteB[i];
+  }
   
   for (int i = 0; i < n; i++) {
     if (strlen(ptr) < 6) return;
@@ -77,23 +121,37 @@ void parsePalette(char* data) {
   
   paletteSize = n;
   paletteMode = true;
-  needsUpdate = true;  // Segnala che i LED vanno aggiornati
+  
+  // Riavvia il fill da sinistra
+  fillPos = 0.0;
+  filling = true;
 }
 
-// Parse "R,G,B" — SOLO parse, NON aggiorna LED
+// Parse "R,G,B"
 void parseSingle(char* data) {
   int r = 0, g = 0, b = 0;
   if (sscanf(data, "%d,%d,%d", &r, &g, &b) == 3) {
+    // Salva vecchio
+    oldPaletteSize = paletteSize;
+    oldPaletteMode = paletteMode;
+    for (int i = 0; i < paletteSize; i++) {
+      oldPaletteR[i] = paletteR[i];
+      oldPaletteG[i] = paletteG[i];
+      oldPaletteB[i] = paletteB[i];
+    }
+    
     currentR = (int)(constrain(r, 0, 255) * RED_FACTOR);
     currentG = (int)(constrain(g, 0, 255) * GREEN_FACTOR);
     currentB = (int)(constrain(b, 0, 255) * BLUE_FACTOR);
     paletteMode = false;
-    needsUpdate = true;
+    
+    fillPos = 0.0;
+    filling = true;
   }
 }
 
 void loop() {
-  // 1. LEGGI TUTTA la seriale (SENZA toccare i LED)
+  // 1. LEGGI seriale
   while (Serial.available() > 0) {
     char c = Serial.read();
     
@@ -116,35 +174,48 @@ void loop() {
   
   digitalWrite(13, LOW);
   
-  // 2. EFFETTO ONDA CONTINUO (eseguito ogni iterazione del loop)
-  // Sfuma tutti i LED di una certa quantità (crea la scia)
-  fadeToBlackBy(leds, NUM_LEDS, 20); // 20 = velocità di dissolvenza
-  
-  // Sposta tutti i LED in avanti di un passo (effetto movimento)
-  for (int i = NUM_LEDS - 1; i > 0; i--) {
-    leds[i] = leds[i - 1];
-  }
-  
-  // 3. SE CI SONO NUOVI DATI, inseriscili all'inizio della striscia (led 0)
-  // Per la palette, mescoliamo i colori nel tempo o ne scegliamo uno a rotazione per frame
-  if (paletteMode && paletteSize > 0) {
-    static int colorIdx = 0;
-    // Inserisci il colore corrente della palette al primo LED
-    leds[0] = CRGB(paletteR[colorIdx], paletteG[colorIdx], paletteB[colorIdx]);
+  // 2. EFFETTO FILL: riempimento fluido da sinistra a destra
+  if (filling) {
+    int headPos = (int)fillPos;  // La "testa" del riempimento
     
-    // Cambia colore alla prossima iterazione (crea un pattern misto se la palette ha più colori)
-    colorIdx++;
-    if (colorIdx >= paletteSize) {
-      colorIdx = 0;
+    for (int i = 0; i < NUM_LEDS; i++) {
+      CRGB target = getTargetColor(i);
+      
+      if (i < headPos - FADE_WIDTH) {
+        // Zona GIÀ RIEMPITA: colore nuovo pieno
+        leds[i] = target;
+        
+      } else if (i < headPos) {
+        // ZONA DI BLEND (la sfumatura morbida sulla testa)
+        // Più vicino alla testa = più vicino al vecchio colore
+        float blend = (float)(headPos - i) / (float)FADE_WIDTH;
+        // blend: 1.0 = completamente nuovo, 0.0 = completamente vecchio
+        CRGB old = getOldColor(i);
+        leds[i] = CRGB(
+          old.r + (int)((float)(target.r - old.r) * blend),
+          old.g + (int)((float)(target.g - old.g) * blend),
+          old.b + (int)((float)(target.b - old.b) * blend)
+        );
+        
+      } else {
+        // ZONA NON ANCORA RAGGIUNTA: mantieni il vecchio colore
+        leds[i] = getOldColor(i);
+      }
     }
-  } else {
-    // Singolo colore (quando non c'è griglia o allo spegnimento 0,0,0)
-    leds[0] = CRGB(currentR, currentG, currentB);
+    
+    // Avanza il cursore
+    fillPos += FILL_SPEED;
+    
+    // Fine animazione
+    if (fillPos >= NUM_LEDS + FADE_WIDTH) {
+      filling = false;
+      // Imposta tutti al colore finale
+      for (int i = 0; i < NUM_LEDS; i++) {
+        leds[i] = getTargetColor(i);
+      }
+    }
   }
   
-  // 4. Mostra i LED e aspetta un istante per controllare la velocità dell'onda
   FastLED.show();
-  delay(20); // Regola questo per la velocità di scorrimento dell'onda
-  
-  needsUpdate = false; // Flag non più strettamente necessario col loop continuo
+  delay(8); // ~120 FPS per animazione fluida
 }
