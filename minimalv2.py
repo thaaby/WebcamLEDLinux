@@ -6,7 +6,7 @@ Solo griglia colori + riconoscimento. Niente audio, niente Arduino.
 
 import cv2
 import numpy as np
-from collections import namedtuple
+from collections import namedtuple, deque
 import math
 import json
 import time
@@ -568,10 +568,42 @@ def select_camera():
         except ValueError:
             print("[X] Inserisci un numero!")
 
+
+def detect_center_color(frame, center_size=50):
+    """Rileva il colore dominante al centro del frame."""
+    height, width = frame.shape[:2]
+    cx, cy = width // 2, height // 2
+    half = center_size // 2
+    half = min(half, cx, cy, width - cx, height - cy)
+    if half < 1:
+        half = 1
+    
+    roi = frame[cy - half:cy + half, cx - half:cx + half]
+    roi = _apply_clahe(roi)
+    
+    if roi.size > 9:
+        avg_bgr = _extract_dominant_kmeans(roi, min(KMEANS_CLUSTERS, roi.shape[0] * roi.shape[1]))
+    else:
+        avg_bgr = np.mean(roi, axis=(0, 1)).astype(int)
+    
+    b, g, r = avg_bgr
+    rgb = (int(r), int(g), int(b))
+    name_en, name_it, hex_code, distance = find_closest_color(rgb)
+    
+    return {
+        'rgb': rgb,
+        'bgr': (int(b), int(g), int(r)),
+        'hex': rgb_to_hex(*rgb),
+        'name_en': name_en,
+        'name_it': name_it,
+        'distance': distance
+    }
+
+
 def main():
     print("\n" + "=" * 50)
-    print("  MINIMAL COLOR GRID - RPi Edition")
-    print("  Solo griglia + riconoscimento colori")
+    print("  MINIMAL COLOR DETECTOR - RPi Edition")
+    print("  Punto centrale + riconoscimento colore")
     print("=" * 50)
     
     camera_id = select_camera()
@@ -589,10 +621,8 @@ def main():
     
     print("\n" + "-" * 50)
     print("  CONTROLLI:")
-    print("  [G] - Cambia griglia (3x3 -> 5x5 -> 7x7)")
     print("  [F] - Fullscreen (toggle)")
     print("  [I] - Inverti colori per LED (Common Anode)")
-    print("  [P] - Esporta palette (JSON + PNG)")
     print("  [Q/ESC] - Esci")
     print("-" * 50 + "\n")
     
@@ -612,17 +642,19 @@ def main():
             print(f"[X] ERRORE Seriale: {e}")
             arduino = None
     
-    grid_size_idx = 0
-    current_palette = []
     fullscreen = False
-    last_palette_send_time = 0
+    prev_r, prev_g, prev_b = 0, 0, 0
     
-    # Dimensione canvas (grande, OpenCV scala con WINDOW_NORMAL)
+    # Buffer per la media dei colori (ultimi N frame)
+    COLOR_AVG_FRAMES = 5
+    color_buffer = deque(maxlen=COLOR_AVG_FRAMES)
+    
+    # Dimensione canvas
     CANVAS_SIZE = 800
     
     # Finestra ridimensionabile (compatibile GTK/Cocoa/Qt)
-    cv2.namedWindow('Color Grid', cv2.WINDOW_NORMAL)
-    cv2.resizeWindow('Color Grid', CANVAS_SIZE, CANVAS_SIZE)
+    cv2.namedWindow('Color Detector', cv2.WINDOW_NORMAL)
+    cv2.resizeWindow('Color Detector', CANVAS_SIZE, CANVAS_SIZE)
     
     try:
         while True:
@@ -633,37 +665,59 @@ def main():
             
             frame = cv2.flip(frame, 1)
             
-            # Campiona griglia
-            grid_size = GRID_SIZES[grid_size_idx]
-            grid_colors = detect_grid_colors(frame, grid_size)
-            current_palette = grid_colors
+            # Rileva colore al centro
+            color_data = detect_center_color(frame)
             
-            # Genera canvas fisso grande
-            canvas = draw_minimal_grid(grid_colors, grid_size, CANVAS_SIZE, CANVAS_SIZE)
-            cv2.imshow('Color Grid', canvas)
+            # Aggiungi al buffer per la media
+            color_buffer.append(color_data['rgb'])
             
-            # --- INVIO DATI AD ARDUINO ---
+            # Calcola la media dei colori nel buffer
+            avg_r = int(np.mean([c[0] for c in color_buffer]))
+            avg_g = int(np.mean([c[1] for c in color_buffer]))
+            avg_b = int(np.mean([c[2] for c in color_buffer]))
+            avg_rgb = (avg_r, avg_g, avg_b)
+            avg_bgr = (avg_b, avg_g, avg_r)
+            
+            # Trova il nome del colore medio
+            avg_name_en, avg_name_it, avg_hex, avg_distance = find_closest_color(avg_rgb)
+            
+            # Sovrascrivi color_data con i valori mediati
+            color_data['rgb'] = avg_rgb
+            color_data['bgr'] = avg_bgr
+            color_data['hex'] = rgb_to_hex(*avg_rgb)
+            color_data['name_en'] = avg_name_en
+            color_data['name_it'] = avg_name_it
+            color_data['distance'] = avg_distance
+            
+            # Genera canvas: un unico quadrato grande col colore mediato
+            canvas = np.zeros((CANVAS_SIZE, CANVAS_SIZE, 3), dtype=np.uint8)
+            canvas[:] = color_data['bgr']
+            cv2.imshow('Color Detector', canvas)
+            
+            # --- INVIO DATI AD ARDUINO (R,G,B) ---
             if arduino is not None and arduino.is_open:
                 try:
                     arduino.reset_input_buffer()
                     
-                    if current_palette:
-                        now = time.time()
-                        if (now - last_palette_send_time) > 0.3:  # Aggiorna ogni 300ms
-                            palette_parts = []
-                            for c in current_palette:
-                                pr, pg, pb = c['rgb']
-                                pr = min(255, max(0, int(apply_gamma(pr))))
-                                pg = min(255, max(0, int(apply_gamma(pg))))
-                                pb = min(255, max(0, int(apply_gamma(pb))))
-                                if COMMON_ANODE:
-                                    pr, pg, pb = 255 - pr, 255 - pg, 255 - pb
-                                palette_parts.append(f"{pr:02X}{pg:02X}{pb:02X}")
-                            
-                            msg = f"P:{len(current_palette)}:{':'.join(palette_parts)}\n"
-                            arduino.write(msg.encode('utf-8'))
-                            last_palette_send_time = now
-                            
+                    target_r, target_g, target_b = color_data['rgb']
+                    
+                    # Smoothing
+                    curr_r = int(prev_r * (1 - SMOOTHING) + target_r * SMOOTHING)
+                    curr_g = int(prev_g * (1 - SMOOTHING) + target_g * SMOOTHING)
+                    curr_b = int(prev_b * (1 - SMOOTHING) + target_b * SMOOTHING)
+                    prev_r, prev_g, prev_b = curr_r, curr_g, curr_b
+                    
+                    # Gamma
+                    final_r = int(apply_gamma(curr_r))
+                    final_g = int(apply_gamma(curr_g))
+                    final_b = int(apply_gamma(curr_b))
+                    
+                    if COMMON_ANODE:
+                        final_r, final_g, final_b = 255 - final_r, 255 - final_g, 255 - final_b
+                    
+                    msg = f"{final_r},{final_g},{final_b}\n"
+                    arduino.write(msg.encode('utf-8'))
+                    
                 except Exception as e:
                     print(f"Errore scrittura Arduino: {e}")
 
@@ -673,29 +727,18 @@ def main():
             if key == ord('q') or key == 27:
                 print("\n[BYE] Arrivederci!")
                 break
-            elif key == ord('g'):
-                grid_size_idx = (grid_size_idx + 1) % len(GRID_SIZES)
-                print(f"[GRID] Griglia: {GRID_SIZES[grid_size_idx]}x{GRID_SIZES[grid_size_idx]}")
             elif key == ord('f'):
                 fullscreen = not fullscreen
                 if fullscreen:
-                    cv2.setWindowProperty('Color Grid', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+                    cv2.setWindowProperty('Color Detector', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
                     print("[FULL] Fullscreen ON")
                 else:
-                    cv2.setWindowProperty('Color Grid', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_NORMAL)
+                    cv2.setWindowProperty('Color Detector', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_NORMAL)
                     print("[FULL] Fullscreen OFF")
             elif key == ord('i'):
                 COMMON_ANODE = not COMMON_ANODE
                 state = "ATTIVA (LED Invertiti/Common Anode)" if COMMON_ANODE else "DISATTIVA (Standard)"
                 print(f"\n[TOGGLE] Modalità Inversione Colore: {state}")
-            elif key == ord('p'):
-                if current_palette:
-                    filename = export_palette(current_palette, grid_size)
-                    print(f"[OK] Palette esportata! {len(current_palette)} colori")
-                    print(f"   JSON: {filename}")
-                    print(f"   PNG:  {filename.replace('.json', '.png')}")
-                    for c in current_palette:
-                        print(f"   {c['hex']} - {c['name_it']}")
     
     finally:
         cap.release()
