@@ -36,7 +36,7 @@ int currentB = 0;
 // --- ANIMAZIONE FILL/SWEEP ---
 float fillPos = 0.0;           // Posizione corrente del cursore (0.0 -> NUM_LEDS)
 bool filling = false;          // Animazione in corso?
-#define FILL_SPEED  4.0        // LED per frame (più alto = più veloce)
+#define FILL_SPEED  16.0       // LED per frame (più alto = più veloce, 16 = ~130ms per 256 LED)
 #define FADE_WIDTH  12         // Larghezza della sfumatura sulla "testa" dell'onda
 
 // Flag: nuovi dati da mostrare
@@ -101,6 +101,30 @@ void parsePalette(char* data) {
   if (!ptr) return;
   ptr++;
   
+  // Leggi i nuovi colori in buffer temporanei per confronto
+  int newR[MAX_PALETTE], newG[MAX_PALETTE], newB[MAX_PALETTE];
+  for (int i = 0; i < n; i++) {
+    if (strlen(ptr) < 6) return;
+    newR[i] = (int)(hexToByte(ptr[0], ptr[1]) * RED_FACTOR);
+    newG[i] = (int)(hexToByte(ptr[2], ptr[3]) * GREEN_FACTOR);
+    newB[i] = (int)(hexToByte(ptr[4], ptr[5]) * BLUE_FACTOR);
+    ptr += 6;
+    if (*ptr == ':') ptr++;
+  }
+  
+  // Controlla se la palette è cambiata (evita di resettare il fill inutilmente)
+  bool changed = (n != paletteSize) || (!paletteMode);
+  if (!changed) {
+    for (int i = 0; i < n; i++) {
+      if (abs(newR[i] - paletteR[i]) > 5 || abs(newG[i] - paletteG[i]) > 5 || abs(newB[i] - paletteB[i]) > 5) {
+        changed = true;
+        break;
+      }
+    }
+  }
+  
+  if (!changed) return;  // Stessi colori: non fare nulla
+  
   // Salva la palette corrente come "vecchia" per il crossfade
   oldPaletteSize = paletteSize;
   oldPaletteMode = paletteMode;
@@ -110,13 +134,11 @@ void parsePalette(char* data) {
     oldPaletteB[i] = paletteB[i];
   }
   
+  // Applica nuovi colori
   for (int i = 0; i < n; i++) {
-    if (strlen(ptr) < 6) return;
-    paletteR[i] = (int)(hexToByte(ptr[0], ptr[1]) * RED_FACTOR);
-    paletteG[i] = (int)(hexToByte(ptr[2], ptr[3]) * GREEN_FACTOR);
-    paletteB[i] = (int)(hexToByte(ptr[4], ptr[5]) * BLUE_FACTOR);
-    ptr += 6;
-    if (*ptr == ':') ptr++;
+    paletteR[i] = newR[i];
+    paletteG[i] = newG[i];
+    paletteB[i] = newB[i];
   }
   
   paletteSize = n;
