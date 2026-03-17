@@ -237,8 +237,15 @@ ARDUINO_COLS = 32                 # Larghezza di un pannello
 ARDUINO_PANEL_W = 8               # Larghezza di un singolo pannello fisico
 ARDUINO_PANEL_H = 32              # Altezza di un singolo pannello fisico
 ARDUINO_PANELS_COUNT = 4          # Quanti pannelli ci sono
-ARDUINO_FIRST_PANEL_RIGHT = True  # True: il pannello 0 è a DESTRA (tipico Arduino) 
-ARDUINO_SERPENTINE_Y = True       # True: il cablaggio zigzag avviene sulle righe (lato corto orizzontale)
+
+# Configurazione cablaggio ricavata dalla foto del retro:
+# Pannello 0 (destra): entra da sotto, esce da sopra
+# Pannello 1 (centro-dx): entra da sopra, esce da sotto
+# Pannello 2 (centro-sx): entra da sotto, esce da sopra
+# Pannello 3 (sinistra): entra da sopra, esce da sotto
+ARDUINO_PANEL_ORDER = [3, 2, 1, 0]  # Indice del pannello fisico da sin a des (P0 è a destra)
+ARDUINO_PANEL_START_BOTTOM = [True, False, True, False] # True: il segnale parte dal basso
+ARDUINO_SERPENTINE_X = True         # Zigzag orizzontale dentro il pannello
 
 GAMMA = 2.5           
 COMMON_ANODE = False  # Premi [I] per invertire i colori
@@ -317,42 +324,58 @@ def create_arduino_serial():
 def map_frame_to_leds(frame_rgb):
     """Mappa l'immagine 32x32 quadrata nell'ordine fisico dei 4 pannelli LED.
     
-    Il cablaggio fisico (visto da davanti) ha 4 strisce verticali da 8x32.
-    Spesso collegate partendo da destra verso sinistra.
-    All'interno di ogni striscia (larga 8), il cavo fa a zigzag (serpentina) su/giù.
+    In base al cablaggio (foto dal retro): i pannelli formano un serpente gigante.
+    P0 (destra) va dal basso verso l'alto.
+    P1 (centro-dx) va dall'alto verso il basso.
+    P2 (centro-sx) va dal basso verso l'alto.
+    P3 (sinistra) va dall'alto verso il basso.
+    All'interno di ogni riga da 8 led, il segnale sfolla a zigzag.
     """
-    # Buffer di uscita per i 1024 LED (1024 * 3 byte = 3072)
     out_buffer = bytearray(ARDUINO_COLS * ARDUINO_ROWS * 3)
     idx = 0
     
-    # Per ogni pannello (da 0 a 3, che per l'Arduino è dal primo cablato all'ultimo)
+    # Ciclo sui pannelli fisici nell'ordine in cui sono collegati (0, 1, 2, 3)
     for p in range(ARDUINO_PANELS_COUNT):
         
-        # Se il primo pannello cablato è fisicamente a DESTRA
-        if ARDUINO_FIRST_PANEL_RIGHT:
-            # p=0 -> colonna più a destra (panel_x_start = 24)
-            panel_x_start = (ARDUINO_PANELS_COUNT - 1 - p) * ARDUINO_PANEL_W
-        else:
-            # p=0 -> colonna più a sinistra (panel_x_start = 0)
-            panel_x_start = p * ARDUINO_PANEL_W
+        # Qual è l'indice X di partenza nell'immagine totale per questo pannello?
+        # Il pannello 0 è a destra (indice 3 da sinistra), quindi X inizia a 3*8 = 24.
+        panel_pos_x = ARDUINO_PANEL_ORDER[p]
+        start_x = panel_pos_x * ARDUINO_PANEL_W
+        
+        # Direzione verticale: parte dal basso o dall'alto?
+        starts_bottom = ARDUINO_PANEL_START_BOTTOM[p]
+        
+        # Iteriamo su ciascun LED (32 righe x 8 colonne) = 256 pixel
+        # "y_local" è la riga FISICA del pannello (0 = l'ingresso, 31 = l'uscita)
+        for y_local in range(ARDUINO_PANEL_H):
             
-        # Percorriamo ogni LED del pannello (dall'alto in basso o viceversa, 
-        # di solito dalla prima riga (0) all'ultima (31))
-        for y in range(ARDUINO_PANEL_H):
-            for x in range(ARDUINO_PANEL_W):
+            # Calcola la Y globale dell'immagine
+            if starts_bottom:
+                # Se parte dal basso, entry point è Y=31. Man mano che y_local cresce, saliamo verso Y=0
+                global_y = (ARDUINO_PANEL_H - 1) - y_local
+            else:
+                # Se parte dall'alto, entry point è Y=0. Man mano che y_local cresce, scendiamo verso Y=31
+                global_y = y_local
                 
-                local_x = x
-                if ARDUINO_SERPENTINE_Y and (y % 2 == 1):
-                    # Riga dispari: inverte la direzione (zigzag destro-sinistro)
-                    local_x = (ARDUINO_PANEL_W - 1) - x
+            # Calcola la X
+            for x_local in range(ARDUINO_PANEL_W):
                 
-                global_x = panel_x_start + local_x
-                global_y = y
+                eff_x = x_local
+                # Serpentine X locale:
+                # Di solito se si parte dal basso e si fa zigzag, la prima riga (y_local=0) va in una direzione,
+                # la seconda (y_local=1) torna indietro.
+                if ARDUINO_SERPENTINE_X and (y_local % 2 == 1):
+                    eff_x = (ARDUINO_PANEL_W - 1) - x_local
                 
-                # Prendi il pixel [R, G, B] dall'immagine
+                # Attenzione: se il segnale entra in basso a *destra* o in basso a *sinistra* cambia.
+                # Assumiamo che il Data In locale sia sempre a sinistra (0) se non zigzagato.
+                # Se l'immagine risulta specchiata all'interno del pannello, basta ribaltare:
+                # eff_x = (ARDUINO_PANEL_W - 1) - eff_x
+                
+                global_x = start_x + eff_x
+                
                 pixel = frame_rgb[global_y, global_x]
                 
-                # Inserisci nel buffer binario
                 out_buffer[idx]   = pixel[0]
                 out_buffer[idx+1] = pixel[1]
                 out_buffer[idx+2] = pixel[2]
