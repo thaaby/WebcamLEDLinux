@@ -830,9 +830,9 @@ def main():
                 print("[X] Errore lettura frame!")
                 break
             
-            frame = cv2.flip(frame, 1)
-            
-            # Leggi velocità dallo slider
+            # Nessun flip: in base ai test, l'orientamento puro della webcam
+            # combinato con ARDUINO_PANEL_START_BOTTOM = False è quello perfetto.
+            # frame = cv2.flip(frame, 1)
             fps_voluti = cv2.getTrackbarPos('FPS Rete', 'Regia Ledwall')
             if fps_voluti == 0:
                 fps_voluti = 1  # Evita divisione per zero
