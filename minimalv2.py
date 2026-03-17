@@ -294,27 +294,18 @@ def create_arduino_serial():
             return None
         port = porte_trovate[0]
         print(f"[AUTO] Porta seriale rilevata: {port}")
-        if len(porte_trovate) > 1:
-            print(f"        Altre porte trovate: {porte_trovate[1:]}")
     
     try:
-        ser = serial.Serial(port, ARDUINO_BAUD, timeout=0.1)
+        ser = serial.Serial(port, ARDUINO_BAUD, timeout=0.01) # Timeout basso per non bloccare il loop
         time.sleep(2)  # Attendi reset Arduino
         print(f"[OK] Arduino connesso su {port} @ {ARDUINO_BAUD} baud")
         print(f"     Matrice: {ARDUINO_COLS}x{ARDUINO_ROWS} ({ARDUINO_COLS * ARDUINO_ROWS} LED)")
         
-        # Test: invia un frame nero per verificare la connessione
-        test_frame = b'V' + bytes(ARDUINO_ROWS * ARDUINO_COLS * 3)
-        ser.write(test_frame)
-        print(f"     Test frame inviato ({len(test_frame)} byte) — LED dovrebbero essere spenti")
-        
+        # Test: pulizia buffer in ingresso
+        ser.read_all()
         return ser
     except serial.SerialException as e:
         print(f"[X] Errore apertura porta {port}: {e}")
-        print(f"    Suggerimenti:")
-        print(f"    - Chiudi il Monitor Seriale dell'Arduino IDE")
-        print(f"    - Controlla che l'Arduino sia collegato")
-        print(f"    - Prova a cambiare ARDUINO_PORT in MinimalV2.py")
         return None
     except Exception as e:
         print(f"[!] Arduino non connesso: {e}")
@@ -824,7 +815,9 @@ def main():
     # Slider per controllare i pacchetti al secondo (FPS rete)
     cv2.createTrackbar('FPS Rete', 'Regia Ledwall', 30, 60, niente)
     
-    arduino_status = "+ Arduino" if arduino_ser else "(no Arduino)"
+    # Variabili per Handshake Arduino
+    arduino_ready = True
+    arduino_last_send_time = time.time()
     print(f"\n[STREAM] Inviando streaming video a {len(ESP_IPS)} pannelli ESP {arduino_status}...")
     
     try:
@@ -883,12 +876,27 @@ def main():
             
             # --- INVIA FRAME ALL'ARDUINO (video seriale) ---
             if arduino_ser is not None:
-                try:
-                    send_arduino_frame(arduino_ser, frame)
-                except Exception as e:
-                    print(f"\n[X] Errore invio frame ad Arduino: {e}")
-                    arduino_ser = None  # Disabilita per non floodare la console
-                    print("  -> Arduino scollegato a causa dell'errore.")
+                # 1. Controlla se l'Arduino ha mandato l'ACK 'K'
+                if arduino_ser.in_waiting > 0:
+                    risposta = arduino_ser.read_all()
+                    if b'K' in risposta:
+                        arduino_ready = True
+                
+                # 1b. Timeout di sicurezza: se Arduino ha perso un frame e non ha mandato K
+                # per più di 0.5 secondi, forza l'invio per sbloccare la situazione.
+                if not arduino_ready and (time.time() - arduino_last_send_time > 0.5):
+                    arduino_ready = True
+                
+                # 2. Se l'Arduino è pronto, invia un nuovo frame
+                if arduino_ready:
+                    try:
+                        send_arduino_frame(arduino_ser, frame)
+                        arduino_ready = False # Aspetta il prossimo 'K'
+                        arduino_last_send_time = time.time()
+                    except Exception as e:
+                        print(f"\n[X] Errore invio frame ad Arduino: {e}")
+                        arduino_ser = None  # Disabilita per non floodare la console
+                        print("  -> Arduino scollegato a causa dell'errore.")
             
             # Mostra l'immagine ridimensionata a schermo (anteprima ledwall)
             cv2.imshow('Regia Ledwall', frame_ridimensionato)
