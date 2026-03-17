@@ -830,7 +830,7 @@ def main():
                 print("[X] Errore lettura frame!")
                 break
             
-            frame = cv2.flip(frame, 1)
+            frame = cv2.flip(frame, 0)
             
             # Leggi velocità dallo slider
             fps_voluti = cv2.getTrackbarPos('FPS Rete', 'Regia Ledwall')
