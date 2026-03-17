@@ -13,3 +13,6 @@ fammi una analisi avanzata e chirurgica.
 Pero attenzione i colori lui li deve captare pero si deve vedere il movimento di questa ipotetica figura che si muove davanti la webcam.
 
 Hai capito la mia richiesta se si spiegami la mia richiesta.
+
+Prossimo passaggio:
+Ci serve fare in modo che le 4 matrici siano comandabili indipendentemente e che riusciamo a vederne per esempio il codice seriale, per poi poter prendere l’immagine, spezzettarla, ruotarla se necessario, e poi fornire un restituzione che attraverso le 4 matrici, ti faccia capire che è una restituzione della webcam. 
