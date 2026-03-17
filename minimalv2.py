@@ -1,7 +1,7 @@
 """
-MINIMAL COLOR GRID DETECTOR
+MINIMAL COLOR GRID DETECTOR + VIDEO STREAMING
 Versione ultra-leggera per Raspberry Pi 5.
-Solo griglia colori + riconoscimento. Niente audio, niente Arduino.
+Streaming video a pannelli ESP (UDP) e Arduino (seriale).
 """
 
 import cv2
@@ -12,8 +12,13 @@ import json
 import time
 import sys
 from datetime import datetime
-import serial
-import serial.tools.list_ports
+import socket
+try:
+    import serial
+    HAS_SERIAL = True
+except ImportError:
+    HAS_SERIAL = False
+    print("[!] pyserial non installato — Arduino video disabilitato (pip install pyserial)")
 
 # ============================================================
 # DATABASE COLORI
@@ -208,31 +213,115 @@ COLOR_DATABASE = [
 ]
 
 # ============================================================
-# CONFIGURAZIONE ARDUINO
+# CONFIGURAZIONE MAXISCHERMO ESP (MULTI-PANNELLO UDP)
 # ============================================================
-ARDUINO_PORT = None
-BAUD_RATE = 115200
+# IP dei 3 ESP (da sinistra a destra)
+ESP_IPS = ["192.168.1.51", "192.168.1.52", "192.168.1.60"]
+ESP_PORT = 4210
+
+# Dimensioni di ogni singolo pannello LED ESP
+PANEL_WIDTH = 15
+PANEL_HEIGHT = 44
+TOTAL_WIDTH = PANEL_WIDTH * len(ESP_IPS)  # Larghezza totale del ledwall
+
+# ============================================================
+# CONFIGURAZIONE ARDUINO VIDEO (SERIALE)
+# ============================================================
+ARDUINO_ENABLED = True            # Abilita streaming video via seriale
+ARDUINO_PORT = "/dev/ttyUSB0"     # Porta seriale (cambia se serve)
+ARDUINO_BAUD = 500000             # Deve corrispondere al baud rate dello sketch
+ARDUINO_ROWS = 32                 # 4 pannelli impilati × 8 righe ciascuno
+ARDUINO_COLS = 32                 # Larghezza di un pannello
+ARDUINO_PANEL_ROWS = 8            # Righe per singolo pannello fisico
+ARDUINO_SERPENTINE = True          # Cablaggio serpentina (righe dispari invertite)
+
 GAMMA = 2.5           
-SMOOTHING = 0.15      
 COMMON_ANODE = False  # Premi [I] per invertire i colori
 
-# Disabilitato Black Threshold nel debug di main.py, non strettamente necessario per la griglia
-# ma prepariamo gamma
+# Tabella gamma pre-calcolata
 gamma_table = np.array([((i / 255.0) ** GAMMA) * 255 for i in np.arange(0, 256)]).astype("uint8")
 
 def apply_gamma(color):
     """Applica la correzione gamma al colore RGB"""
     return gamma_table[color]
 
-def find_arduino_port():
-    print("[SCAN] Scansione porte seriali...")
-    ports = list(serial.tools.list_ports.comports())
-    for p in ports:
-        if "Arduino" in p.description or "usbmodem" in p.device or "ttyACM" in p.device or "usbserial" in p.device or "ttyUSB" in p.device:
-            print(f"[OK] Arduino trovato su: {p.device}")
-            return p.device
-    print("[X] Nessun Arduino trovato!")
-    return None
+def create_udp_socket():
+    """Crea un socket UDP per comunicare con i pannelli ESP."""
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        print(f"[OK] Socket UDP creato -> {len(ESP_IPS)} pannelli sulla porta {ESP_PORT}")
+        for i, ip in enumerate(ESP_IPS):
+            print(f"  Pannello {i}: {ip}")
+        return sock
+    except Exception as e:
+        print(f"[X] Errore creazione socket UDP: {e}")
+        return None
+
+
+def create_arduino_serial():
+    """Crea connessione seriale all'Arduino per video streaming."""
+    if not ARDUINO_ENABLED or not HAS_SERIAL:
+        return None
+    try:
+        ser = serial.Serial(ARDUINO_PORT, ARDUINO_BAUD, timeout=0.1)
+        import time as _t
+        _t.sleep(2)  # Attendi reset Arduino
+        print(f"[OK] Arduino connesso su {ARDUINO_PORT} @ {ARDUINO_BAUD} baud")
+        print(f"     Matrice: {ARDUINO_COLS}x{ARDUINO_ROWS} ({ARDUINO_COLS * ARDUINO_ROWS} LED)")
+        return ser
+    except Exception as e:
+        print(f"[!] Arduino non connesso: {e}")
+        print(f"    Streaming video Arduino disabilitato.")
+        return None
+
+
+def apply_serpentine(frame_rgb, panel_rows=ARDUINO_PANEL_ROWS):
+    """Rimappa le righe dispari per cablaggio serpentina WS2812B.
+    
+    Nelle matrici LED, le righe dispari sono cablate da destra a sinistra.
+    Questa funzione inverte i pixel di quelle righe.
+    """
+    result = frame_rgb.copy()
+    rows = result.shape[0]
+    for y in range(rows):
+        local_row = y % panel_rows
+        if local_row % 2 == 1:  # Righe dispari: invertite
+            result[y] = result[y, ::-1]
+    return result
+
+
+def send_arduino_frame(ser, frame, use_gamma=True):
+    """Invia un frame webcam all'Arduino come pixel RGB grezzi.
+    
+    1. Ridimensiona il frame a ARDUINO_COLS × ARDUINO_ROWS
+    2. Converte BGR → RGB
+    3. Applica gamma (opzionale)
+    4. Rimappa serpentina
+    5. Invia: byte 'V' + 3072 byte RGB
+    """
+    # Ridimensiona alla risoluzione della matrice LED
+    small = cv2.resize(frame, (ARDUINO_COLS, ARDUINO_ROWS), interpolation=cv2.INTER_AREA)
+    rgb = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
+    
+    # Correggi gamma
+    if use_gamma:
+        rgb = gamma_table[rgb]
+    
+    # Inverti se Common Anode
+    if COMMON_ANODE:
+        rgb = 255 - rgb
+    
+    # Rimappa serpentina
+    if ARDUINO_SERPENTINE:
+        rgb = apply_serpentine(rgb)
+    
+    # Invia: header 'V' + dati RGB grezzi
+    ser.write(b'V' + rgb.astype(np.uint8).tobytes())
+
+
+def niente(x):
+    """Callback vuota per lo slider di OpenCV."""
+    pass
 
 
 # ============================================================
@@ -602,11 +691,14 @@ def detect_center_color(frame, center_size=50):
 
 def main():
     print("\n" + "=" * 50)
-    print("  MINIMAL COLOR DETECTOR - RPi Edition")
-    print("  Punto centrale + riconoscimento colore")
+    print("  REGIA LEDWALL - Multi-Pannello + Arduino Video")
+    print(f"  ESP: {len(ESP_IPS)} pannelli ({TOTAL_WIDTH}x{PANEL_HEIGHT})")
+    if ARDUINO_ENABLED:
+        print(f"  Arduino: {ARDUINO_COLS}x{ARDUINO_ROWS} video seriale")
     print("=" * 50)
     
-    camera_id = select_camera()
+    # --- MODIFICA 1: Bypassata la selezione manuale per avvii automatici in background ---
+    camera_id = 0 
     
     print(f"\n[CAM] Avvio webcam {camera_id}...")
     cap = cv2.VideoCapture(camera_id)
@@ -626,35 +718,21 @@ def main():
     print("  [Q/ESC] - Esci")
     print("-" * 50 + "\n")
     
-    # --- CONNESSIONE ARDUINO ---
+    # --- CONNESSIONI ---
     global COMMON_ANODE
-    arduino = None
-    arduino_port = find_arduino_port()
-    if arduino_port:
-        try:
-            print(f"[CONN] Tentativo di connessione a {arduino_port}...")
-            arduino = serial.Serial(arduino_port, BAUD_RATE, timeout=0.1, write_timeout=0.1)
-            time.sleep(2)  # Pausa reset Arduino
-            arduino.reset_input_buffer()
-            arduino.reset_output_buffer()
-            print("[OK] ARDUINO CONNESSO!")
-        except Exception as e:
-            print(f"[X] ERRORE Seriale: {e}")
-            arduino = None
+    udp_sock = create_udp_socket()
+    arduino_ser = create_arduino_serial()
     
     fullscreen = False
-    prev_r, prev_g, prev_b = 0, 0, 0
-    
-    # Buffer per la media dei colori (ultimi N frame)
-    COLOR_AVG_FRAMES = 5
-    color_buffer = deque(maxlen=COLOR_AVG_FRAMES)
-    
-    # Dimensione canvas
-    CANVAS_SIZE = 800
     
     # Finestra ridimensionabile (compatibile GTK/Cocoa/Qt)
-    cv2.namedWindow('Color Detector', cv2.WINDOW_NORMAL)
-    cv2.resizeWindow('Color Detector', CANVAS_SIZE, CANVAS_SIZE)
+    cv2.namedWindow('Regia Ledwall', cv2.WINDOW_NORMAL)
+    
+    # Slider per controllare i pacchetti al secondo (FPS rete)
+    cv2.createTrackbar('FPS Rete', 'Regia Ledwall', 30, 60, niente)
+    
+    arduino_status = "+ Arduino" if arduino_ser else "(no Arduino)"
+    print(f"\n[STREAM] Inviando streaming video a {len(ESP_IPS)} pannelli ESP {arduino_status}...")
     
     try:
         while True:
@@ -665,64 +743,63 @@ def main():
             
             frame = cv2.flip(frame, 1)
             
-            # Rileva colore al centro
-            color_data = detect_center_color(frame)
+            # Leggi velocità dallo slider
+            fps_voluti = cv2.getTrackbarPos('FPS Rete', 'Regia Ledwall')
+            if fps_voluti == 0:
+                fps_voluti = 1  # Evita divisione per zero
+            delay_ms = int(1000 / fps_voluti)
             
-            # Aggiungi al buffer per la media
-            color_buffer.append(color_data['rgb'])
+            # Ridimensiona il frame alla risoluzione del ledwall e converti BGR -> RGB
+            frame_ridimensionato = cv2.resize(frame, (TOTAL_WIDTH, PANEL_HEIGHT))
+            frame_rgb = cv2.cvtColor(frame_ridimensionato, cv2.COLOR_BGR2RGB)
             
-            # Calcola la media dei colori nel buffer
-            avg_r = int(np.mean([c[0] for c in color_buffer]))
-            avg_g = int(np.mean([c[1] for c in color_buffer]))
-            avg_b = int(np.mean([c[2] for c in color_buffer]))
-            avg_rgb = (avg_r, avg_g, avg_b)
-            avg_bgr = (avg_b, avg_g, avg_r)
+            # Applica gamma all'intero frame
+            frame_rgb = gamma_table[frame_rgb]
             
-            # Trova il nome del colore medio
-            avg_name_en, avg_name_it, avg_hex, avg_distance = find_closest_color(avg_rgb)
+            # Inverti colori se Common Anode
+            if COMMON_ANODE:
+                frame_rgb = 255 - frame_rgb
             
-            # Sovrascrivi color_data con i valori mediati
-            color_data['rgb'] = avg_rgb
-            color_data['bgr'] = avg_bgr
-            color_data['hex'] = rgb_to_hex(*avg_rgb)
-            color_data['name_en'] = avg_name_en
-            color_data['name_it'] = avg_name_it
-            color_data['distance'] = avg_distance
+            # --- AFFETTA E SPEDISCI A OGNI PANNELLO ---
+            if udp_sock is not None:
+                for indice, ip in enumerate(ESP_IPS):
+                    taglio_x_inizio = indice * PANEL_WIDTH
+                    taglio_x_fine = (indice + 1) * PANEL_WIDTH
+                    
+                    # Estrae la fetta per questo pannello
+                    fetta = frame_rgb[:, taglio_x_inizio:taglio_x_fine]
+                    
+                    # === FIX: Traspone le assi per mandare pixel in colonne (alto->basso)
+                    # mantenendo i triplet RGB accoppiati correttamente ===
+                    fetta_colonne = np.transpose(fetta, (1, 0, 2)).astype(np.uint8)
+                    dati_grezzi = fetta_colonne.flatten().tobytes()
+                    
+                    # Taglia i dati a metà in 2 pacchetti (con byte indice)
+                    meta = len(dati_grezzi) // 2
+                    pacchetto_0 = bytes([0]) + dati_grezzi[:meta]
+                    pacchetto_1 = bytes([1]) + dati_grezzi[meta:]
+                    
+                    try:
+                        udp_sock.sendto(pacchetto_0, (ip, ESP_PORT))
+                        udp_sock.sendto(pacchetto_1, (ip, ESP_PORT))
+                        
+                        # Pausa 3ms per far respirare il router tra un pannello e l'altro
+                        time.sleep(0.003)
+                    except Exception:
+                        pass
             
-            # Genera canvas: un unico quadrato grande col colore mediato
-            canvas = np.zeros((CANVAS_SIZE, CANVAS_SIZE, 3), dtype=np.uint8)
-            canvas[:] = color_data['bgr']
-            cv2.imshow('Color Detector', canvas)
-            
-            # --- INVIO DATI AD ARDUINO (R,G,B) ---
-            if arduino is not None and arduino.is_open:
+            # --- INVIA FRAME ALL'ARDUINO (video seriale) ---
+            if arduino_ser is not None:
                 try:
-                    arduino.reset_input_buffer()
-                    
-                    target_r, target_g, target_b = color_data['rgb']
-                    
-                    # Smoothing
-                    curr_r = int(prev_r * (1 - SMOOTHING) + target_r * SMOOTHING)
-                    curr_g = int(prev_g * (1 - SMOOTHING) + target_g * SMOOTHING)
-                    curr_b = int(prev_b * (1 - SMOOTHING) + target_b * SMOOTHING)
-                    prev_r, prev_g, prev_b = curr_r, curr_g, curr_b
-                    
-                    # Gamma
-                    final_r = int(apply_gamma(curr_r))
-                    final_g = int(apply_gamma(curr_g))
-                    final_b = int(apply_gamma(curr_b))
-                    
-                    if COMMON_ANODE:
-                        final_r, final_g, final_b = 255 - final_r, 255 - final_g, 255 - final_b
-                    
-                    msg = f"{final_r},{final_g},{final_b}\n"
-                    arduino.write(msg.encode('utf-8'))
-                    
-                except Exception as e:
-                    print(f"Errore scrittura Arduino: {e}")
+                    send_arduino_frame(arduino_ser, frame)
+                except Exception:
+                    pass
+            
+            # Mostra l'immagine ridimensionata a schermo (anteprima ledwall)
+            cv2.imshow('Regia Ledwall', frame_ridimensionato)
 
-            # Input
-            key = cv2.waitKey(300) & 0xFF  # 300ms = ~3 FPS (leggero!)
+            # Input - delay_ms controllato dallo slider FPS
+            key = cv2.waitKey(delay_ms) & 0xFF
             
             if key == ord('q') or key == 27:
                 print("\n[BYE] Arrivederci!")
@@ -730,28 +807,39 @@ def main():
             elif key == ord('f'):
                 fullscreen = not fullscreen
                 if fullscreen:
-                    cv2.setWindowProperty('Color Detector', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
-                    print("[FULL] Fullscreen ON")
+                    cv2.setWindowProperty('Regia Ledwall', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
                 else:
-                    cv2.setWindowProperty('Color Detector', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_NORMAL)
-                    print("[FULL] Fullscreen OFF")
+                    cv2.setWindowProperty('Regia Ledwall', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_NORMAL)
             elif key == ord('i'):
                 COMMON_ANODE = not COMMON_ANODE
-                state = "ATTIVA (LED Invertiti/Common Anode)" if COMMON_ANODE else "DISATTIVA (Standard)"
-                print(f"\n[TOGGLE] Modalità Inversione Colore: {state}")
+                state = "ATTIVA" if COMMON_ANODE else "DISATTIVA"
+                print(f"\n[TOGGLE] Modalità Inversione: {state}")
     
     finally:
         cap.release()
         cv2.destroyAllWindows()
-        if arduino:
+        if udp_sock:
             try:
-                print("[LED] Spegnimento LED...")
-                for _ in range(5):
-                    arduino.write(b"0,0,0\n")
-                    time.sleep(0.05)
-                time.sleep(0.3)
-                arduino.close()
-                print("[OK] LED spenti. Connessione Arduino chiusa.")
+                print("[LED] Spegnimento LED ESP...")
+                # Invia frame nero a tutti i pannelli ESP
+                frame_nero = bytes(PANEL_WIDTH * PANEL_HEIGHT * 3)
+                for ip in ESP_IPS:
+                    meta = len(frame_nero) // 2
+                    udp_sock.sendto(bytes([0]) + frame_nero[:meta], (ip, ESP_PORT))
+                    udp_sock.sendto(bytes([1]) + frame_nero[meta:], (ip, ESP_PORT))
+                    time.sleep(0.02)
+                udp_sock.close()
+                print("[OK] LED ESP spenti. Socket UDP chiuso.")
+            except Exception:
+                pass
+        if arduino_ser:
+            try:
+                print("[LED] Spegnimento LED Arduino...")
+                # Invia frame nero all'Arduino
+                arduino_ser.write(b'V' + bytes(ARDUINO_ROWS * ARDUINO_COLS * 3))
+                time.sleep(0.1)
+                arduino_ser.close()
+                print("[OK] LED Arduino spenti. Seriale chiusa.")
             except Exception:
                 pass
 

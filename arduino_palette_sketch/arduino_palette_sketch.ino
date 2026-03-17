@@ -2,7 +2,7 @@
 
 // --- CONFIGURAZIONE MATRICE ---
 #define LED_PIN     6
-#define NUM_LEDS    256     // Matrice 8x32
+#define NUM_LEDS    1024    // 4x Matrice 8x32
 #define BRIGHTNESS  40      // Sicurezza alimentazione
 #define LED_TYPE    WS2812B
 #define COLOR_ORDER GRB
@@ -47,8 +47,8 @@ char inputBuffer[512];
 int bufferPos = 0;
 
 void setup() {
-  Serial.begin(115200);
-  Serial.setTimeout(5);
+  Serial.begin(500000);
+  Serial.setTimeout(100);  // Timeout per ricevere frame video completi
   pinMode(13, OUTPUT);
   
   FastLED.addLeds<LED_TYPE, LED_PIN, COLOR_ORDER>(leds, NUM_LEDS).setCorrection(TypicalLEDStrip);
@@ -173,7 +173,17 @@ void parseSingle(char* data) {
 }
 
 void loop() {
-  // 1. LEGGI seriale
+  // 0. MODALITÀ VIDEO: se il primo byte è 'V', leggi frame diretto
+  if (Serial.available() > 0 && Serial.peek() == 'V') {
+    Serial.read();  // Consuma 'V'
+    int bytesRead = Serial.readBytes((char*)leds, NUM_LEDS * 3);
+    if (bytesRead == NUM_LEDS * 3) {
+      FastLED.show();
+    }
+    return;  // Salta logica palette per questo ciclo
+  }
+  
+  // 1. LEGGI seriale (modalità palette/colore singolo)
   while (Serial.available() > 0) {
     char c = Serial.read();
     
