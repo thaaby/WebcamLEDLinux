@@ -1,11 +1,18 @@
 import serial
 import time
-import cv2
-import numpy as np
+import glob
 
 # Configurazione Arduino
-ARDUINO_PORT = "/dev/ttyUSB0" # Cambia se serve
 ARDUINO_BAUD = 500000
+
+# Trova automaticamente la porta
+porte_trovate = glob.glob('/dev/ttyUSB*') + glob.glob('/dev/ttyACM*') + glob.glob('/dev/cu.usbmodem*')
+if not porte_trovate:
+    print("ERRORE: Nessuna porta seriale trovata. Controlla il cavo USB dell'Arduino!")
+    exit(1)
+
+ARDUINO_PORT = porte_trovate[0]
+print(f"Porta rilevata automaticamente: {ARDUINO_PORT}")
 
 print(f"Tentativo di connessione a {ARDUINO_PORT}...")
 try:
