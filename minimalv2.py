@@ -239,11 +239,9 @@ ARDUINO_PANEL_H = 32              # Altezza di un singolo pannello fisico
 ARDUINO_PANELS_COUNT = 4          # Quanti pannelli ci sono
 
 # Configurazione cablaggio ricavata dalla foto del retro:
-# Pannello 0 (destra): entra da sotto, esce da sopra
-# Pannello 1 (centro-dx): entra da sopra, esce da sotto
 # Pannello 2 (centro-sx): entra da sotto, esce da sopra
-# L'utente ha confermato che l'ordine fisico va invertito
-ARDUINO_PANEL_ORDER = [0, 1, 2, 3]  # Era [3, 2, 1, 0]
+# Riavviato a specchio: l'ordine corretto per non averla specchiata è [3, 2, 1, 0]
+ARDUINO_PANEL_ORDER = [3, 2, 1, 0]  # Se 0,1,2,3 la vedi specchiata
 ARDUINO_PANEL_START_BOTTOM = [False, False, False, False] # Tutto capovolto in blocco per dritto/rovescio locale
 ARDUINO_SERPENTINE_X = True         # Zigzag orizzontale dentro il pannello
 
