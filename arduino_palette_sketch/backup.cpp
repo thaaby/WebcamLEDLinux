@@ -47,8 +47,8 @@ char inputBuffer[512];
 int bufferPos = 0;
 
 void setup() {
-  Serial.begin(115200);
-  Serial.setTimeout(5);
+  Serial.begin(500000);
+  Serial.setTimeout(100);  // Timeout per ricevere frame video completi
   pinMode(13, OUTPUT);
   
   FastLED.addLeds<LED_TYPE, LED_PIN, COLOR_ORDER>(leds, NUM_LEDS).setCorrection(TypicalLEDStrip);
@@ -173,7 +173,28 @@ void parseSingle(char* data) {
 }
 
 void loop() {
-  // 1. LEGGI seriale
+// Flag temporaneo per sapere se il frame è pronto
+  bool videoFrameReady = false;
+
+  // 0. MODALITÀ VIDEO: cerca il byte di sincronizzazione 'V'
+  if (Serial.available() > 0 && Serial.peek() == 'V') {
+    Serial.read(); // Consuma 'V'
+    
+    // Attendi i dati RGB del frame
+    int bytesRead = Serial.readBytes((char*)leds, NUM_LEDS * 3);
+    
+    if (bytesRead == NUM_LEDS * 3) {
+      digitalWrite(13, HIGH); // LED acceso: frame video OK
+      FastLED.show();
+    } else {
+      digitalWrite(13, LOW);  // LED spento: frame incompleto o perso
+      // Frame corrotto o frammentato, svuota il buffer per risincronizzare
+      while(Serial.available() > 0) Serial.read();
+    }
+    return; // Completato o ignorato il frame video, ricomincia il loop
+  }
+  
+  // 1. LEGGI seriale (modalità palette/colore singolo)
   while (Serial.available() > 0) {
     char c = Serial.read();
     

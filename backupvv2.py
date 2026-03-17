@@ -242,8 +242,8 @@ ARDUINO_PANELS_COUNT = 4          # Quanti pannelli ci sono
 # Pannello 0 (destra): entra da sotto, esce da sopra
 # Pannello 1 (centro-dx): entra da sopra, esce da sotto
 # Pannello 2 (centro-sx): entra da sotto, esce da sopra
-# L'utente ha confermato che l'ordine fisico va invertito
-ARDUINO_PANEL_ORDER = [0, 1, 2, 3]  # Era [3, 2, 1, 0]
+# Pannello 3 (sinistra): entra da sopra, esce da sotto
+ARDUINO_PANEL_ORDER = [3, 2, 1, 0]  # Indice del pannello fisico da sin a des (P0 è a destra)
 ARDUINO_PANEL_START_BOTTOM = [True, False, True, False] # True: il segnale parte dal basso
 ARDUINO_SERPENTINE_X = True         # Zigzag orizzontale dentro il pannello
 
