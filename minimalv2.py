@@ -286,7 +286,8 @@ def create_arduino_serial():
             glob.glob('/dev/ttyUSB*') + 
             glob.glob('/dev/ttyACM*') + 
             glob.glob('/dev/cu.usbmodem*') +   # macOS
-            glob.glob('/dev/cu.usbserial*')     # macOS
+            glob.glob('/dev/cu.usbserial*') +  # macOS
+            glob.glob('/dev/tty.*')            # macOS generico per R4
         )
         if not porte_trovate:
             print("[!] Nessuna porta seriale trovata!")
@@ -814,6 +815,8 @@ def main():
     
     # Slider per controllare i pacchetti al secondo (FPS rete)
     cv2.createTrackbar('FPS Rete', 'Regia Ledwall', 30, 60, niente)
+    
+    arduino_status = "+ Arduino" if arduino_ser else "(no Arduino)"
     
     # Variabili per Handshake Arduino
     arduino_ready = True
