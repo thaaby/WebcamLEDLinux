@@ -233,8 +233,12 @@ ARDUINO_PORT = "auto"             # Porta seriale ('auto' per rilevamento automa
 ARDUINO_BAUD = 500000             # Deve corrispondere al baud rate dello sketch
 ARDUINO_ROWS = 32                 # 4 pannelli impilati × 8 righe ciascuno
 ARDUINO_COLS = 32                 # Larghezza di un pannello
-ARDUINO_PANEL_ROWS = 8            # Righe per singolo pannello fisico
-ARDUINO_SERPENTINE = True          # Cablaggio serpentina (righe dispari invertite)
+# Configurazione Orientamento Pannelli Arduino
+ARDUINO_PANEL_W = 8               # Larghezza di un singolo pannello fisico
+ARDUINO_PANEL_H = 32              # Altezza di un singolo pannello fisico
+ARDUINO_PANELS_COUNT = 4          # Quanti pannelli ci sono
+ARDUINO_FIRST_PANEL_RIGHT = True  # True: il pannello 0 è a DESTRA (tipico Arduino) 
+ARDUINO_SERPENTINE_Y = True       # True: il cablaggio zigzag avviene sulle righe (lato corto orizzontale)
 
 GAMMA = 2.5           
 COMMON_ANODE = False  # Premi [I] per invertire i colori
@@ -310,19 +314,51 @@ def create_arduino_serial():
         return None
 
 
-def apply_serpentine(frame_rgb, panel_rows=ARDUINO_PANEL_ROWS):
-    """Rimappa le righe dispari per cablaggio serpentina WS2812B.
+def map_frame_to_leds(frame_rgb):
+    """Mappa l'immagine 32x32 quadrata nell'ordine fisico dei 4 pannelli LED.
     
-    Nelle matrici LED, le righe dispari sono cablate da destra a sinistra.
-    Questa funzione inverte i pixel di quelle righe.
+    Il cablaggio fisico (visto da davanti) ha 4 strisce verticali da 8x32.
+    Spesso collegate partendo da destra verso sinistra.
+    All'interno di ogni striscia (larga 8), il cavo fa a zigzag (serpentina) su/giù.
     """
-    result = frame_rgb.copy()
-    rows = result.shape[0]
-    for y in range(rows):
-        local_row = y % panel_rows
-        if local_row % 2 == 1:  # Righe dispari: invertite
-            result[y] = result[y, ::-1]
-    return result
+    # Buffer di uscita per i 1024 LED (1024 * 3 byte = 3072)
+    out_buffer = bytearray(ARDUINO_COLS * ARDUINO_ROWS * 3)
+    idx = 0
+    
+    # Per ogni pannello (da 0 a 3, che per l'Arduino è dal primo cablato all'ultimo)
+    for p in range(ARDUINO_PANELS_COUNT):
+        
+        # Se il primo pannello cablato è fisicamente a DESTRA
+        if ARDUINO_FIRST_PANEL_RIGHT:
+            # p=0 -> colonna più a destra (panel_x_start = 24)
+            panel_x_start = (ARDUINO_PANELS_COUNT - 1 - p) * ARDUINO_PANEL_W
+        else:
+            # p=0 -> colonna più a sinistra (panel_x_start = 0)
+            panel_x_start = p * ARDUINO_PANEL_W
+            
+        # Percorriamo ogni LED del pannello (dall'alto in basso o viceversa, 
+        # di solito dalla prima riga (0) all'ultima (31))
+        for y in range(ARDUINO_PANEL_H):
+            for x in range(ARDUINO_PANEL_W):
+                
+                local_x = x
+                if ARDUINO_SERPENTINE_Y and (y % 2 == 1):
+                    # Riga dispari: inverte la direzione (zigzag destro-sinistro)
+                    local_x = (ARDUINO_PANEL_W - 1) - x
+                
+                global_x = panel_x_start + local_x
+                global_y = y
+                
+                # Prendi il pixel [R, G, B] dall'immagine
+                pixel = frame_rgb[global_y, global_x]
+                
+                # Inserisci nel buffer binario
+                out_buffer[idx]   = pixel[0]
+                out_buffer[idx+1] = pixel[1]
+                out_buffer[idx+2] = pixel[2]
+                idx += 3
+                
+    return bytes(out_buffer)
 
 
 def send_arduino_frame(ser, frame, use_gamma=True):
@@ -346,12 +382,11 @@ def send_arduino_frame(ser, frame, use_gamma=True):
     if COMMON_ANODE:
         rgb = 255 - rgb
     
-    # Rimappa serpentina
-    if ARDUINO_SERPENTINE:
-        rgb = apply_serpentine(rgb)
+    # Applica mappatura fisica complessa
+    rgb_bytes = map_frame_to_leds(rgb)
     
-    # Invia: header 'V' + dati RGB grezzi
-    ser.write(b'V' + rgb.astype(np.uint8).tobytes())
+    # Invia: header 'V' + dati RGB mappati
+    ser.write(b'V' + rgb_bytes)
 
 
 def niente(x):
