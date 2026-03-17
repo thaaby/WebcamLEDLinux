@@ -19,7 +19,7 @@ try:
     HAS_SERIAL = True
 except ImportError:
     HAS_SERIAL = False
-    print("[!] pyserial non installato — Arduino video disabilitato (pip install pyserial)")
+    print("[!] ipyserial non installato — Arduino video disabilitato (pip install pyserial)")
 
 # ============================================================
 # DATABASE COLORI
