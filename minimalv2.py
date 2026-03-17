@@ -13,6 +13,7 @@ import time
 import sys
 from datetime import datetime
 import socket
+import glob
 try:
     import serial
     HAS_SERIAL = True
@@ -228,7 +229,7 @@ TOTAL_WIDTH = PANEL_WIDTH * len(ESP_IPS)  # Larghezza totale del ledwall
 # CONFIGURAZIONE ARDUINO VIDEO (SERIALE)
 # ============================================================
 ARDUINO_ENABLED = True            # Abilita streaming video via seriale
-ARDUINO_PORT = "/dev/ttyUSB0"     # Porta seriale (cambia se serve)
+ARDUINO_PORT = "auto"             # Porta seriale ('auto' per rilevamento automatico)
 ARDUINO_BAUD = 500000             # Deve corrispondere al baud rate dello sketch
 ARDUINO_ROWS = 32                 # 4 pannelli impilati × 8 righe ciascuno
 ARDUINO_COLS = 32                 # Larghezza di un pannello
@@ -259,19 +260,53 @@ def create_udp_socket():
 
 
 def create_arduino_serial():
-    """Crea connessione seriale all'Arduino per video streaming."""
+    """Crea connessione seriale all'Arduino per video streaming.
+    Se ARDUINO_PORT è 'auto', cerca automaticamente la porta."""
     if not ARDUINO_ENABLED or not HAS_SERIAL:
+        if not HAS_SERIAL:
+            print("[!] pyserial non disponibile. Installa con: pip install pyserial")
         return None
+    
+    port = ARDUINO_PORT
+    
+    # Auto-detect: cerca porte seriali disponibili
+    if port == "auto":
+        porte_trovate = (
+            glob.glob('/dev/ttyUSB*') + 
+            glob.glob('/dev/ttyACM*') + 
+            glob.glob('/dev/cu.usbmodem*') +   # macOS
+            glob.glob('/dev/cu.usbserial*')     # macOS
+        )
+        if not porte_trovate:
+            print("[!] Nessuna porta seriale trovata!")
+            print("    Controlla che l'Arduino sia collegato via USB.")
+            return None
+        port = porte_trovate[0]
+        print(f"[AUTO] Porta seriale rilevata: {port}")
+        if len(porte_trovate) > 1:
+            print(f"        Altre porte trovate: {porte_trovate[1:]}")
+    
     try:
-        ser = serial.Serial(ARDUINO_PORT, ARDUINO_BAUD, timeout=0.1)
-        import time as _t
-        _t.sleep(2)  # Attendi reset Arduino
-        print(f"[OK] Arduino connesso su {ARDUINO_PORT} @ {ARDUINO_BAUD} baud")
+        ser = serial.Serial(port, ARDUINO_BAUD, timeout=0.1)
+        time.sleep(2)  # Attendi reset Arduino
+        print(f"[OK] Arduino connesso su {port} @ {ARDUINO_BAUD} baud")
         print(f"     Matrice: {ARDUINO_COLS}x{ARDUINO_ROWS} ({ARDUINO_COLS * ARDUINO_ROWS} LED)")
+        
+        # Test: invia un frame nero per verificare la connessione
+        test_frame = b'V' + bytes(ARDUINO_ROWS * ARDUINO_COLS * 3)
+        ser.write(test_frame)
+        print(f"     Test frame inviato ({len(test_frame)} byte) — LED dovrebbero essere spenti")
+        
         return ser
+    except serial.SerialException as e:
+        print(f"[X] Errore apertura porta {port}: {e}")
+        print(f"    Suggerimenti:")
+        print(f"    - Chiudi il Monitor Seriale dell'Arduino IDE")
+        print(f"    - Controlla che l'Arduino sia collegato")
+        print(f"    - Prova a cambiare ARDUINO_PORT in MinimalV2.py")
+        return None
     except Exception as e:
         print(f"[!] Arduino non connesso: {e}")
-        print(f"    Streaming video Arduino disabilitato.")
         return None
 
 
@@ -792,8 +827,10 @@ def main():
             if arduino_ser is not None:
                 try:
                     send_arduino_frame(arduino_ser, frame)
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"\n[X] Errore invio frame ad Arduino: {e}")
+                    arduino_ser = None  # Disabilita per non floodare la console
+                    print("  -> Arduino scollegato a causa dell'errore.")
             
             # Mostra l'immagine ridimensionata a schermo (anteprima ledwall)
             cv2.imshow('Regia Ledwall', frame_ridimensionato)

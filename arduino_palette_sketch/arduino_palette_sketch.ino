@@ -173,14 +173,25 @@ void parseSingle(char* data) {
 }
 
 void loop() {
-  // 0. MODALITÀ VIDEO: se il primo byte è 'V', leggi frame diretto
+// Flag temporaneo per sapere se il frame è pronto
+  bool videoFrameReady = false;
+
+  // 0. MODALITÀ VIDEO: cerca il byte di sincronizzazione 'V'
   if (Serial.available() > 0 && Serial.peek() == 'V') {
-    Serial.read();  // Consuma 'V'
+    Serial.read(); // Consuma 'V'
+    
+    // Attendi i dati RGB del frame
     int bytesRead = Serial.readBytes((char*)leds, NUM_LEDS * 3);
+    
     if (bytesRead == NUM_LEDS * 3) {
+      digitalWrite(13, HIGH); // LED acceso: frame video OK
       FastLED.show();
+    } else {
+      digitalWrite(13, LOW);  // LED spento: frame incompleto o perso
+      // Frame corrotto o frammentato, svuota il buffer per risincronizzare
+      while(Serial.available() > 0) Serial.read();
     }
-    return;  // Salta logica palette per questo ciclo
+    return; // Completato o ignorato il frame video, ricomincia il loop
   }
   
   // 1. LEGGI seriale (modalità palette/colore singolo)
